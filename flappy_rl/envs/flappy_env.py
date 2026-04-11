@@ -54,7 +54,6 @@ class FlappyBirdEnv(gymnasium.Env):
 
         # Internal state (set properly in reset())
         self._state: GameState | None = None
-        self._seed:  int | None       = None
 
         # Renderer — only created on first render() call if render_mode=="human"
         self._renderer = None
@@ -69,11 +68,11 @@ class FlappyBirdEnv(gymnasium.Env):
         options: dict | None = None,
     ) -> tuple[np.ndarray, dict]:
         super().reset(seed=seed)
-        if seed is not None:
-            self._seed = seed
-
+        # Use provided seed once; after that use None so each episode
+        # gets a different random layout (no memorisation of a single track).
+        episode_seed = seed
         self.obs_builder.reset()                        # clear frame stacks etc.
-        self._state = GameState.reset(self.cfg, seed=self._seed)
+        self._state = GameState.reset(self.cfg, seed=episode_seed)
         obs = self.obs_builder.build(self._state)
         return obs, self._info()
 

@@ -1,0 +1,46 @@
+# Config 1 — Base environment
+# Hard pipes only, fixed gap height, no threats.
+# This is the v1 environment used for the initial PPO/DQN/A2C comparison.
+#
+# Observation builder : SimpleObsBuilder  (8-dim)
+# Reward function     : SurvivalReward or ScoredReward
+
+# --- screen ---
+screen_w: 800
+screen_h: 600
+fps: 60
+
+# --- physics ---
+physics_mode: discrete
+gravity: 0.5
+flap_strength: -5.0
+
+# --- scrolling ---
+scroll_speed: 3.0
+
+# --- pipes ---
+pipe_width: 60
+pipe_spacing: 280
+gap_height: 160
+gap_y_min: 80
+gap_y_max: 360
+
+# --- health ---
+health_start: 100.0
+passive_drain: 0.0
+
+# --- misc ---
+bird_x: 150
+max_episode_frames: 18000
+
+# --- feature flags (all off in Config 1) ---
+enable_pipe_variants: false
+pipe_weight_hard: 1.0
+pipe_weight_soft: 0.0
+pipe_weight_brittle: 0.0
+pipe_weight_foam: 0.0
+invincibility_duration: 30
+
+enable_bullets: false
+enable_wind: false
+enable_health_kits: false

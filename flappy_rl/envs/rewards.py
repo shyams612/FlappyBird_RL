@@ -91,20 +91,57 @@ class ScoredReward(RewardFn):
 
 
 # ---------------------------------------------------------------------------
-# HealthAwareReward  (stub — Config 3+)
+# HealthAwareReward
 # ---------------------------------------------------------------------------
 
 class HealthAwareReward(RewardFn):
     """
-    Placeholder for the health-management reward experiment described in
-    the proposal.  Raises NotImplementedError until implemented.
+    Reward that makes the agent increasingly risk-averse as health depletes.
 
-    Intended signal:
-      +1/frame alive
-      + small bonus for collecting health kits  (or implicit via survival)
-      − penalty proportional to unnecessary damage taken
-      − death penalty
+    Signal per frame:
+      +1                     — survival reward
+      +pipe_bonus            — each time a pipe column is passed
+      −damage_penalty        — on any damage taken, scaled by health urgency
+      −death_penalty         — on death
+
+    Damage penalty formula:
+        penalty = damage_taken × (max_health / health_before_hit) × damage_scale
+
+    At full health (100 hp):  penalty = damage × 1.0 × damage_scale  (small)
+    At half health  (50 hp):  penalty = damage × 2.0 × damage_scale  (moderate)
+    At low health   (10 hp):  penalty = damage × 10.0 × damage_scale (large)
+
+    This creates a continuous risk-aversion gradient — the lower the health,
+    the more costly any hit becomes, pushing the agent to treat non-hard pipes
+    as increasingly dangerous as health depletes.
     """
 
+    def __init__(
+        self,
+        death_penalty: float = -100.0,
+        pipe_bonus:    float =   10.0,
+        damage_scale:  float =    0.5,   # tune to balance against survival reward
+        max_health:    float =  100.0,
+    ):
+        self.death_penalty = death_penalty
+        self.pipe_bonus    = pipe_bonus
+        self.damage_scale  = damage_scale
+        self.max_health    = max_health
+
     def __call__(self, prev: GameState, curr: GameState, action: int) -> float:
-        raise NotImplementedError("HealthAwareReward not yet implemented.")
+        if curr.terminated:
+            return self.death_penalty
+
+        reward = 1.0
+
+        # Pipe passing bonus
+        if curr.score > prev.score:
+            reward += self.pipe_bonus * (curr.score - prev.score)
+
+        # Damage penalty — scaled by how critical health was before the hit
+        damage_taken = prev.health - curr.health
+        if damage_taken > 0:
+            urgency = self.max_health / prev.health   # 1.0 at full health, → ∞ near zero
+            reward -= damage_taken * urgency * self.damage_scale
+
+        return reward

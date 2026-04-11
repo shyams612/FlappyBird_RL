@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from datetime import datetime
+import yaml
 
 from stable_baselines3 import PPO, DQN, A2C
 from stable_baselines3.common.monitor import Monitor
@@ -30,6 +31,8 @@ from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 
 from envs.flappy_env import FlappyBirdEnv
 from envs.config import EnvConfig
+from envs.observations import SimpleObsBuilder, Config2ObsBuilder, Config2NoisyObsBuilder
+from envs.rewards import SurvivalReward, HealthAwareReward
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +84,31 @@ ALGO_PARAMS = {
 ALGO_CLASSES = {"ppo": PPO, "dqn": DQN, "a2c": A2C}
 
 
+def make_obs_builder(cfg: EnvConfig, obs_override: str | None = None):
+    """
+    Select the observation builder.
+    If obs_override is given, it takes precedence over auto-selection.
+    Otherwise, auto-selects based on config flags.
+    """
+    if obs_override == "config2_noisy":
+        return Config2NoisyObsBuilder(cfg)
+    if obs_override == "config2":
+        return Config2ObsBuilder(cfg)
+    if obs_override == "simple":
+        return SimpleObsBuilder(cfg)
+    # Auto-select
+    if cfg.enable_pipe_variants:
+        return Config2ObsBuilder(cfg)
+    return SimpleObsBuilder(cfg)
+
+
+def make_reward_fn(cfg: EnvConfig):
+    """Select the appropriate reward function based on enabled features."""
+    if cfg.enable_pipe_variants:
+        return HealthAwareReward()
+    return SurvivalReward()
+
+
 # ---------------------------------------------------------------------------
 # Args
 # ---------------------------------------------------------------------------
@@ -89,6 +117,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--algo",       choices=["ppo", "dqn", "a2c"], default="ppo")
     p.add_argument("--config",     default=None,  help="Path to YAML env config")
+    p.add_argument("--obs",        choices=["simple", "config2", "config2_noisy"], default=None,
+                   help="Override obs builder (default: auto-selected from config)")
     p.add_argument("--timesteps",  type=int,      default=1_000_000)
     p.add_argument("--run-name",   default=None,  help="Override auto-generated run name")
     p.add_argument("--seed",       type=int,      default=42)
@@ -116,8 +146,44 @@ def main() -> None:
     print(f"[train] timesteps : {args.timesteps:,}")
 
     # --- Environments ---
-    train_env = Monitor(FlappyBirdEnv(cfg), filename=str(run_dir / "monitor.csv"))
-    eval_env  = Monitor(FlappyBirdEnv(cfg))
+    obs_builder = make_obs_builder(cfg, args.obs)
+    reward_fn   = make_reward_fn(cfg)
+    print(f"[train] obs builder : {obs_builder.__class__.__name__}")
+    print(f"[train] reward fn   : {reward_fn.__class__.__name__}")
+
+    # --- Save experiment record ---
+    experiment = {
+        "run_name":        run_name,
+        "timestamp":       datetime.now().isoformat(),
+        "algo":            args.algo.upper(),
+        "timesteps":       args.timesteps,
+        "seed":            args.seed,
+        "config_file":     args.config or "default (EnvConfig())",
+        "obs_builder":     obs_builder.__class__.__name__,
+        "reward_fn":       reward_fn.__class__.__name__,
+        "env": {
+            "enable_pipe_variants":   cfg.enable_pipe_variants,
+            "enable_gradient_damage": cfg.enable_gradient_damage,
+            "enable_bullets":         cfg.enable_bullets,
+            "enable_wind":            cfg.enable_wind,
+            "gap_height":             cfg.gap_height,
+            "gap_height_soft":        cfg.gap_height_soft,
+            "gap_height_brittle":     cfg.gap_height_brittle,
+            "gap_height_foam":        cfg.gap_height_foam,
+            "pipe_weight_hard":       cfg.pipe_weight_hard,
+            "pipe_weight_soft":       cfg.pipe_weight_soft,
+            "pipe_weight_brittle":    cfg.pipe_weight_brittle,
+            "pipe_weight_foam":       cfg.pipe_weight_foam,
+            "scroll_speed":           cfg.scroll_speed,
+            "passive_drain":          cfg.passive_drain,
+        },
+        "hyperparams": ALGO_PARAMS[args.algo],
+    }
+    with open(run_dir / "experiment.yaml", "w") as f:
+        yaml.dump(experiment, f, sort_keys=False)
+    print(f"[train] experiment  : {run_dir}/experiment.yaml")
+    train_env = Monitor(FlappyBirdEnv(cfg, obs_builder=make_obs_builder(cfg, args.obs), reward_fn=make_reward_fn(cfg)), filename=str(run_dir / "monitor.csv"))
+    eval_env  = Monitor(FlappyBirdEnv(cfg, obs_builder=make_obs_builder(cfg, args.obs), reward_fn=make_reward_fn(cfg)))
 
     # --- Callbacks ---
     eval_callback = EvalCallback(

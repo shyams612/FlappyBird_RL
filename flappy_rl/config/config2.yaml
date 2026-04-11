@@ -1,0 +1,54 @@
+# Config 2 — Pipe variants
+# Introduces soft, brittle, and foam pipe types alongside hard pipes.
+# Non-hard pipes deal damage instead of killing instantly, rewarding
+# the agent for learning to assess risk per pipe type.
+#
+# Observation builder : Config2ObsBuilder  (11-dim — adds pipe type per column)
+# Reward function     : ScoredReward or HealthAwareReward
+
+# --- screen ---
+screen_w: 800
+screen_h: 600
+fps: 60
+
+# --- physics ---
+physics_mode: discrete
+gravity: 0.5
+flap_strength: -5.0
+
+# --- scrolling ---
+scroll_speed: 3.0
+
+# --- pipes ---
+pipe_width: 60
+pipe_spacing: 280
+gap_height: 160         # HARD pipes — normal gap
+gap_y_min: 80
+gap_y_max: 360
+
+# Per-type gap heights — tighter for non-hard pipes to force precision flying
+gap_height_soft: 100
+gap_height_brittle: 90
+gap_height_foam: 110
+
+# --- health ---
+health_start: 100.0
+passive_drain: 0.0
+
+# --- misc ---
+bird_x: 150
+max_episode_frames: 18000
+
+# --- feature flags ---
+enable_pipe_variants: true
+pipe_weight_hard: 0.7      # 70% of pipes are hard (instant death)
+pipe_weight_soft: 0.1      # 10% soft    — -10 hp on hit
+pipe_weight_brittle: 0.1   # 10% brittle — -25 hp on hit
+pipe_weight_foam: 0.1      # 10% foam    —  -5 hp on hit
+invincibility_duration: 30 # 0.5 s immunity after a non-hard hit
+
+enable_gradient_damage: true   # damage scales with position: near gap = max, far from gap = min
+
+enable_bullets: false
+enable_wind: false
+enable_health_kits: false

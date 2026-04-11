@@ -20,6 +20,7 @@ from stable_baselines3 import PPO, DQN, A2C
 
 from envs.flappy_env import FlappyBirdEnv
 from envs.config import EnvConfig
+from envs.observations import SimpleObsBuilder, Config2ObsBuilder, Config2NoisyObsBuilder
 
 ALGO_CLASSES = {"ppo": PPO, "dqn": DQN, "a2c": A2C}
 
@@ -86,6 +87,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--algo",          default=None, choices=list(ALGO_CLASSES),
                    help="ppo / dqn / a2c. Auto-detected from run folder name if omitted.")
     p.add_argument("--config",        default=None, help="Path to YAML env config")
+    p.add_argument("--obs",           choices=["simple", "config2", "config2_noisy"], default=None,
+                   help="Override obs builder (default: auto-selected from config)")
     p.add_argument("--episodes",      type=int, default=3)
     p.add_argument("--deterministic", type=lambda x: x.lower() != "false", default=True,
                    help="Use deterministic actions (default: true)")
@@ -110,9 +113,24 @@ def main() -> None:
         algo = args.algo   # explicit flag always wins
 
     # --- Load ---
-    cfg   = EnvConfig.from_yaml(args.config) if args.config else EnvConfig()
+    cfg = EnvConfig.from_yaml(args.config) if args.config else EnvConfig()
+
+    # Obs builder — explicit flag takes precedence over auto-selection
+    obs_override = getattr(args, 'obs', None)
+    if obs_override == "config2_noisy":
+        obs_builder = Config2NoisyObsBuilder(cfg)
+    elif obs_override == "config2":
+        obs_builder = Config2ObsBuilder(cfg)
+    elif obs_override == "simple":
+        obs_builder = SimpleObsBuilder(cfg)
+    elif cfg.enable_pipe_variants:
+        obs_builder = Config2ObsBuilder(cfg)
+    else:
+        obs_builder = SimpleObsBuilder(cfg)
+
     model = ALGO_CLASSES[algo].load(ckpt)
-    env   = FlappyBirdEnv(cfg, render_mode="human")
+    env   = FlappyBirdEnv(cfg, obs_builder=obs_builder, render_mode="human")
+    print(f"[eval] obs builder : {obs_builder.__class__.__name__}")
 
     print(f"[eval] algo       : {algo.upper()}")
     print(f"[eval] checkpoint : {ckpt}")
