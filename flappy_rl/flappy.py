@@ -617,10 +617,85 @@ def cmd_train(exp_name: str, algo: str, variant: str | None = None):
     subprocess.run(cmd)
 
 
+def _build_claude_context(exp_name: str, variant_name: str,
+                          stats: dict, info: dict, features: dict) -> str:
+    """Build a rich context string to send to Claude for diagnosis."""
+    rewards  = stats["rewards"]
+    episodes = stats["episodes"]
+
+    # Bucketed curve as plain text
+    bucket_sz = max(episodes // 40, 1)
+    buckets   = []
+    for i in range(0, len(rewards), bucket_sz):
+        chunk = rewards[i:i+bucket_sz]
+        buckets.append(sum(chunk) / len(chunk))
+
+    curve_lines = []
+    for i, b in enumerate(buckets):
+        ep = i * bucket_sz
+        curve_lines.append(f"  ep {ep:>5}: {b:>8.1f}")
+    curve_str = "\n".join(curve_lines)
+
+    algo        = info.get("algo", "?")
+    obs_builder = info.get("obs_builder", "?")
+    reward_fn   = info.get("reward_fn", "?")
+    hyperparams = info.get("hyperparams", {})
+
+    feature_items = "\n".join(f"  {k}: {v}" for k, v in features.items())
+    hyperparam_items = "\n".join(f"  {k}: {v}" for k, v in hyperparams.items())
+
+    return f"""You are analyzing a deep RL training run for a modified Flappy Bird environment.
+
+## Experiment
+- Name: {exp_name}
+- Variant: {variant_name}
+- Algorithm: {algo}
+- Obs builder: {obs_builder}
+- Reward function: {reward_fn}
+
+## Environment features
+{feature_items}
+
+## Hyperparameters
+{hyperparam_items}
+
+## Training statistics
+- Total episodes: {episodes}
+- Best reward: {stats['best_reward']:.1f}
+- Last-50 mean reward: {stats['last50_mean']:.1f}
+- Last-50 mean episode length: {stats['last50_ep_len']:.1f} frames
+
+## Reward curve (bucketed mean per ~{bucket_sz} episodes)
+{curve_str}
+
+## Environment context
+The bird navigates through pipes. Reward is +1/frame alive, -100 on death.
+Pipe types: HARD (instant death), SOFT/BRITTLE/FOAM (gradient damage — near gap edge = max damage, far = min).
+HealthAwareReward scales damage penalty inversely with current health.
+Observation includes bird state, next 2 pipes (distance, gap top/bottom, type), health, bullets.
+Action space: Discrete(4) — bit0=flap, bit1=shoot. Shooting destroys the next non-hard pipe.
+
+## Task
+Diagnose what happened in this training run. Be specific about:
+1. What the reward curve pattern indicates (collapse, no learning, slow convergence, stable, etc.)
+2. Why it happened — cite the specific algorithm, reward function, or environment feature
+3. What hyperparameter changes would help and why
+
+Keep your response concise (under 200 words). Do not suggest code changes — only diagnose and explain."""
+
+
 def cmd_analyze(exp_name: str, variant_name: str):
     exp_dir = _find_exp(exp_name)
     if not exp_dir:
         print(f"  Experiment '{exp_name}' not found.")
+        return
+
+    variant_dir = exp_dir / variant_name
+    stats       = _monitor_stats(variant_dir)
+    info        = _load_run_info(variant_dir)
+
+    if not stats or not info:
+        print(f"  Not enough data to analyze '{exp_name}/{variant_name}'.")
         return
 
     suggestion = _analyze_variant(exp_name, variant_name)
@@ -628,19 +703,29 @@ def cmd_analyze(exp_name: str, variant_name: str):
         print(f"  Not enough data to analyze '{exp_name}/{variant_name}'.")
         return
 
+    # --- Claude diagnosis ---
+    meta     = _load_exp_meta(exp_dir)
+    features = meta.get("features", {})
+    context  = _build_claude_context(exp_name, variant_name, stats, info, features)
+
     print(f"\n  [ANALYZE]  {exp_name} / {variant_name}")
     print(f"  {'─'*55}")
-    print(f"  Observations:")
-    for o in suggestion["observations"]:
-        print(f"    • {o}")
-    print(f"\n  Likely causes:")
-    for i, c in enumerate(suggestion["causes"], 1):
-        print(f"    {i}. {c}")
-    print(f"\n  Suggested patch → {exp_dir}/{suggestion['patch_file']}:")
+    print(f"  Claude diagnosis:\n")
+
+    result = subprocess.run(
+        ["claude", "-p", context],
+        capture_output=False,   # stream directly to terminal
+    )
+    if result.returncode != 0:
+        print("  (claude CLI not available — skipping narrative diagnosis)")
+
+    # --- Rule-based patch suggestion ---
+    print(f"\n  {'─'*55}")
+    print(f"  Suggested patch → {exp_dir}/{suggestion['patch_file']}:")
     for k, v in suggestion["patch_diff"].items():
         print(f"    {k}: {v}")
-    print(f"\n  Next variant: {suggestion['next_variant']}")
-    print(f"  Run with: train {exp_name} {suggestion['algo']} {suggestion['next_variant']}")
+    print(f"\n  Next variant : {suggestion['next_variant']}")
+    print(f"  Train with   : train {exp_name} {suggestion['algo']} {suggestion['next_variant']}")
     print(f"\n  Type 'approve' to create patch + train, or 'reject' to discard.")
 
     _save_suggestion(exp_dir, suggestion)
