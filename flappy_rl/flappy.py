@@ -253,6 +253,30 @@ def _all_partial_runs() -> list[tuple[Path, Path]]:
 
 
 # ---------------------------------------------------------------------------
+# Claude CLI resolver
+# ---------------------------------------------------------------------------
+
+def _find_claude() -> str | None:
+    """Return path to the claude binary, or None if not found."""
+    import shutil, glob as _glob
+    # 1. On PATH
+    path = shutil.which("claude")
+    if path:
+        return path
+    # 2. VSCode extension bundle (common on Linux/Mac)
+    patterns = [
+        os.path.expanduser("~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude"),
+        os.path.expanduser("~/.cursor/extensions/anthropic.claude-code-*/resources/native-binary/claude"),
+        "/usr/local/bin/claude",
+    ]
+    for pattern in patterns:
+        matches = _glob.glob(pattern)
+        if matches:
+            return sorted(matches)[-1]   # latest version
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Analysis engine
 # ---------------------------------------------------------------------------
 
@@ -712,12 +736,11 @@ def cmd_analyze(exp_name: str, variant_name: str):
     print(f"  {'─'*55}")
     print(f"  Claude diagnosis:\n")
 
-    result = subprocess.run(
-        ["claude", "-p", context],
-        capture_output=False,   # stream directly to terminal
-    )
-    if result.returncode != 0:
-        print("  (claude CLI not available — skipping narrative diagnosis)")
+    claude_bin = _find_claude()
+    if claude_bin:
+        subprocess.run([claude_bin, "-p", context])
+    else:
+        print("  (claude CLI not found — skipping narrative diagnosis)")
 
     # --- Rule-based patch suggestion ---
     print(f"\n  {'─'*55}")
