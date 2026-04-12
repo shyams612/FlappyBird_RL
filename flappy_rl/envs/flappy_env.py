@@ -49,8 +49,10 @@ class FlappyBirdEnv(gymnasium.Env):
         self.render_mode  = render_mode
 
         # Gymnasium spaces — derived entirely from the obs_builder
+        # 4 actions when bullets enabled: bit0=flap, bit1=shoot → {0,1,2,3}
+        # 2 actions otherwise: 0=nothing, 1=flap
         self.observation_space = self.obs_builder.observation_space()
-        self.action_space      = spaces.Discrete(2)   # 0 = nothing, 1 = flap
+        self.action_space      = spaces.Discrete(4 if self.cfg.enable_bullets else 2)
 
         # Internal state (set properly in reset())
         self._state: GameState | None = None

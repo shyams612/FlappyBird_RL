@@ -1,10 +1,11 @@
-# Config 2 Baseline — Pipe variants, flat damage, normal gaps
-# Reproduces the conditions of the best-performing run (ppo_config2_healthaware).
-# Pipe variants enabled with flat damage and normal 160px gaps for all types.
-# This is the clean baseline before introducing gradient damage or tighter gaps.
+# Experiment: foam
+# Adds foam pipe variants with gradient damage.
+# Agent must learn to treat pipe types differently —
+# crash through foam far from gap (cheap) or thread the gap (free).
 #
-# Observation builder : Config2ObsBuilder  (11-dim)
-# Reward function     : HealthAwareReward  (auto-selected)
+# Features: pipe variants, gradient damage
+# Obs builder: Config2ObsBuilder (12-dim)
+# Reward fn  : HealthAwareReward
 
 # --- screen ---
 screen_w: 800
@@ -25,8 +26,6 @@ pipe_spacing: 280
 gap_height: 160
 gap_y_min: 80
 gap_y_max: 360
-
-# All non-hard pipes use the same 160px gap — no tighter gaps
 gap_height_soft: 160
 gap_height_brittle: 160
 gap_height_foam: 160
@@ -39,16 +38,16 @@ passive_drain: 0.0
 bird_x: 150
 max_episode_frames: 18000
 
-# --- feature flags ---
+# --- features ---
 enable_pipe_variants: true
-enable_gradient_damage: false    # flat damage — same wherever bird hits pipe
+enable_gradient_damage: true
 pipe_weight_hard: 0.7
 pipe_weight_soft: 0.1
 pipe_weight_brittle: 0.1
 pipe_weight_foam: 0.1
 invincibility_duration: 30
 
-enable_bullets: true
+enable_bullets: false
 bullet_count: 10
 enable_wind: false
 enable_health_kits: false

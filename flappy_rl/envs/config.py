@@ -66,6 +66,7 @@ class EnvConfig:
     # ------------------------------------------------------------------ flags
     # These are all False in v1; flip them for Config 2+
     enable_bullets: bool      = False
+    bullet_count: int         = 10    # bullets available per episode when enable_bullets=True
     enable_wind: bool         = False
     enable_health_kits: bool  = False
 

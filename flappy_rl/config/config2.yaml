@@ -49,6 +49,7 @@ invincibility_duration: 30 # 0.5 s immunity after a non-hard hit
 
 enable_gradient_damage: true   # damage scales with position: near gap = max, far from gap = min
 
-enable_bullets: false
+enable_bullets: true
+bullet_count: 10
 enable_wind: false
 enable_health_kits: false

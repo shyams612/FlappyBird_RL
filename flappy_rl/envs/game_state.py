@@ -84,6 +84,7 @@ class GameState:
         bird = Bird(
             pos=Vec2(cfg.bird_x, cfg.screen_h / 2),
             vel=Vec2(0.0, 0.0),
+            bullets=cfg.bullet_count if cfg.enable_bullets else 0,
         )
         spawner = PipeSpawner(cfg, rng)
         pipes = spawner.initial_pipes()
@@ -106,21 +107,46 @@ class GameState:
         Advance the world by one frame.
         Returns a new GameState — does NOT mutate self.
 
-        action: 0 = do nothing, 1 = flap
-        dt:     elapsed seconds; only used in CONTINUOUS physics mode.
+        Action encoding (Discrete(4)):
+            bit 0 (action & 1)       : flap   — 0 = no flap,  1 = flap
+            bit 1 ((action >> 1) & 1): shoot  — 0 = no shoot, 1 = shoot next pipe
+
+        When enable_bullets=False, the shoot bit is ignored and action space
+        is treated as binary (0/1) for backwards compatibility.
+
+        dt: elapsed seconds; only used in CONTINUOUS physics mode.
         """
         cfg = self.cfg
 
+        flap  = action & 1
+        shoot = (action >> 1) & 1 if cfg.enable_bullets else 0
+
         # 1. Advance bird physics; tick down invincibility
-        new_bird = step_bird(self.bird, action, cfg, dt)
+        new_bird = step_bird(self.bird, flap, cfg, dt)
         new_bird.invincibility_frames = max(0, self.bird.invincibility_frames - 1)
+        new_bird.bullets = self.bird.bullets
 
         # 2. Passive health drain
         new_health = self.health - cfg.passive_drain
         if new_health <= 0:
             new_bird.alive = False
 
-        # 3. Scroll and update pipes
+        # 3. Shoot — destroy the next upcoming pipe if bullets remain
+        #    "Next upcoming" = first pipe (by x) that the bird hasn't passed yet
+        #    Only non-hard pipes can be destroyed; hard pipes are indestructible.
+        shot_pipe_x: float | None = None
+        if shoot and new_bird.bullets > 0:
+            upcoming = [
+                p for p in self.pipes
+                if not p.passed and not p.destroyed and p.x + p.width > new_bird.pos.x
+            ]
+            if upcoming:
+                target = min(upcoming, key=lambda p: p.x)
+                if target.pipe_type != PipeType.HARD:
+                    shot_pipe_x = target.x
+                    new_bird.bullets -= 1
+
+        # 4. Scroll and update pipes
         scroll = cfg.scroll_speed
         new_pipes: list[Pipe] = []
         new_score = self.score
@@ -129,13 +155,18 @@ class GameState:
             np = p.copy()
             np.x -= scroll
 
-            # Score: bird has fully passed this pipe column
+            # Mark as destroyed if it was the shoot target this frame
+            # Compare against p.x (pre-scroll original position)
+            if shot_pipe_x is not None and p.x == shot_pipe_x and not p.destroyed:
+                np.destroyed = True
+
+            # Score: bird has fully passed this pipe column (destroyed pipes still count)
             if not np.passed and new_bird.pos.x > np.x + np.width:
                 np.passed = True
                 new_score += 1
 
-            # Collision detection
-            if new_bird.alive and not np.shattered:
+            # Collision detection — skip destroyed and shattered pipes
+            if new_bird.alive and not np.shattered and not np.destroyed:
                 bird_rect = new_bird.rect
                 if bird_rect.overlaps(np.top_rect) or bird_rect.overlaps(np.bot_rect):
                     if np.pipe_type == PipeType.HARD:

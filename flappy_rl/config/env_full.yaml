@@ -1,0 +1,53 @@
+# Experiment: full
+# All features enabled — the most complex environment.
+# Agent must manage health, shoot dangerous pipes, adapt to wind,
+# seek health kits, and thread gaps — all simultaneously.
+#
+# Features: pipe variants, gradient damage, health kits, wind, bullets
+# Obs builder: Config2ObsBuilder (12-dim)
+# Reward fn  : HealthAwareReward
+
+# --- screen ---
+screen_w: 800
+screen_h: 600
+fps: 60
+
+# --- physics ---
+physics_mode: discrete
+gravity: 0.5
+flap_strength: -5.0
+
+# --- scrolling ---
+scroll_speed: 3.0
+
+# --- pipes ---
+pipe_width: 60
+pipe_spacing: 280
+gap_height: 160
+gap_y_min: 80
+gap_y_max: 360
+gap_height_soft: 160
+gap_height_brittle: 160
+gap_height_foam: 160
+
+# --- health ---
+health_start: 100.0
+passive_drain: 0.0
+
+# --- misc ---
+bird_x: 150
+max_episode_frames: 18000
+
+# --- features ---
+enable_pipe_variants: true
+enable_gradient_damage: true
+pipe_weight_hard: 0.7
+pipe_weight_soft: 0.1
+pipe_weight_brittle: 0.1
+pipe_weight_foam: 0.1
+invincibility_duration: 30
+
+enable_bullets: true
+bullet_count: 10
+enable_wind: true
+enable_health_kits: true

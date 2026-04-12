@@ -100,6 +100,7 @@ class Bird:
     alive: bool   = True
     health: float = 100.0
     invincibility_frames: int = 0   # frames of damage immunity after a non-hard pipe hit
+    bullets: int = 10               # remaining bullets for shooting pipes
 
     @property
     def rect(self) -> Rect:
@@ -119,6 +120,7 @@ class Bird:
             alive=self.alive,
             health=self.health,
             invincibility_frames=self.invincibility_frames,
+            bullets=self.bullets,
         )
 
 
@@ -135,6 +137,7 @@ class Pipe:
     width: float        = 60
     passed: bool        = False   # flipped once bird x > pipe x+width (for scoring)
     shattered: bool     = False   # non-hard pipe hit in safe zone — no further collision
+    destroyed: bool     = False   # shot by bird — removed from collision and rendering
 
     @property
     def top_rect(self) -> Rect:
@@ -155,4 +158,5 @@ class Pipe:
             width=self.width,
             passed=self.passed,
             shattered=self.shattered,
+            destroyed=self.destroyed,
         )

@@ -49,7 +49,13 @@ PIPE_GRADIENT: dict[PipeType, tuple[tuple, tuple, tuple]] = {
 GRADIENT_STRIP_H = 2   # height of each colour strip in pixels
 
 # Shattered pipe overlay — semi-transparent dark tint drawn over a broken pipe
-SHATTER_TINT = (30, 30, 30, 160)
+SHATTER_TINT  = (30,  30,  30, 160)
+# Destroyed pipe overlay — bright flash/rubble tint (pipe was shot)
+DESTROY_TINT  = (255, 80,   0,  80)   # orange-ish semi-transparent
+DESTROY_CROSS = (255, 80,   0, 220)   # colour for the X drawn on destroyed pipes
+
+BULLET_COL    = (255, 220,  50)   # yellow bullet indicator dot
+BULLET_EMPTY  = (80,  80,  80)    # grey empty slot
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +111,11 @@ class Renderer:
 
     def _draw_pipes(self, s: pygame.Surface, state: GameState) -> None:
         for pipe in state.pipes:
+            # Destroyed pipes — draw rubble outline only, no solid body
+            if pipe.destroyed:
+                self._draw_destroyed_pipe(s, pipe)
+                continue
+
             if pipe.pipe_type == PipeType.HARD:
                 # Flat colour — instant death, no gradient needed
                 fill, border = PIPE_COLOURS[PipeType.HARD]
@@ -147,6 +158,27 @@ class Renderer:
                     surf = pygame.Surface((int(pipe.width), self.screen_h), pygame.SRCALPHA)
                     surf.fill(SHATTER_TINT)
                     s.blit(surf, (int(pipe.x), 0))
+
+    def _draw_destroyed_pipe(self, s: pygame.Surface, pipe) -> None:
+        """Draw a shot pipe as a faded orange outline with an X through it."""
+        x, w = int(pipe.x), int(pipe.width)
+        top_h = int(pipe.gap_top)
+        bot_y = int(pipe.gap_bottom)
+        bot_h = self.screen_h - GROUND_H - bot_y
+
+        tint_surf = pygame.Surface((w, self.screen_h), pygame.SRCALPHA)
+        tint_surf.fill(DESTROY_TINT)
+        s.blit(tint_surf, (x, 0))
+
+        cross_col = DESTROY_CROSS
+        # X on top segment
+        if top_h > 4:
+            pygame.draw.line(s, cross_col, (x, 0),          (x + w, top_h),    2)
+            pygame.draw.line(s, cross_col, (x + w, 0),      (x,     top_h),    2)
+        # X on bottom segment
+        if bot_h > 4:
+            pygame.draw.line(s, cross_col, (x, bot_y),      (x + w, bot_y + bot_h), 2)
+            pygame.draw.line(s, cross_col, (x + w, bot_y),  (x,     bot_y + bot_h), 2)
 
     def _draw_gradient_segment(
         self,
@@ -205,9 +237,28 @@ class Renderer:
         # Health bar (top-left)
         self._draw_health_bar(s, state.health)
 
+        # Bullet indicator (below health bar)
+        if state.cfg.enable_bullets:
+            self._draw_bullet_hud(s, state.bird.bullets, state.cfg.bullet_count)
+
         # Frame counter (small, bottom-left)
         frame_surf = self._font_sm.render(f"frame {state.frame}", True, WHITE)
         s.blit(frame_surf, (8, self.screen_h - GROUND_H - 22))
+
+    def _draw_bullet_hud(self, s: pygame.Surface, bullets: int, max_bullets: int) -> None:
+        """Draw a row of bullet dots below the health bar."""
+        label = self._font_sm.render("AMMO", True, WHITE)
+        s.blit(label, (12, 36))
+        dot_r  = 5
+        dot_gap = 14
+        start_x = 12
+        start_y = 54
+        for i in range(max_bullets):
+            cx = start_x + i * dot_gap + dot_r
+            cy = start_y + dot_r
+            col = BULLET_COL if i < bullets else BULLET_EMPTY
+            pygame.draw.circle(s, col, (cx, cy), dot_r)
+            pygame.draw.circle(s, WHITE, (cx, cy), dot_r, 1)
 
     def _draw_health_bar(self, s: pygame.Surface, health: float) -> None:
         bar_x, bar_y, bar_w, bar_h = 12, 12, 160, 18

@@ -124,11 +124,10 @@ class SimpleObsBuilder(ObservationBuilder):
 
 class Config2ObsBuilder(ObservationBuilder):
     """
-    10-dimensional observation for Config 2 (pipe variants enabled).
+    12-dimensional observation for Config 2 (pipe variants + bullets enabled).
 
-    Extends SimpleObsBuilder by adding the pipe type for the next two
-    upcoming pipes, so the agent can distinguish HARD/SOFT/BRITTLE/FOAM
-    and adjust its risk tolerance accordingly.
+    Extends SimpleObsBuilder by adding pipe type per upcoming pipe and
+    remaining bullets, so the agent can make shoot-vs-thread decisions.
 
       [0]  bird_y              — normalised 0..1
       [1]  bird_vel_y          — normalised -1..1
@@ -141,14 +140,16 @@ class Config2ObsBuilder(ObservationBuilder):
       [8]  2nd pipe gap_bot    — normalised 0..1
       [9]  2nd pipe type       — same encoding
       [10] health              — normalised 0..1
+      [11] bullets             — normalised 0..1  (bullets / bullet_count)
     """
 
-    OBS_DIM    = 11
+    OBS_DIM    = 12
     _TYPE_NORM = 3.0   # max PipeType int value (FOAM=3) — normalises to [0, 1]
 
     def __init__(self, cfg: EnvConfig):
         self.cfg = cfg
-        self._vel_scale = 20.0
+        self._vel_scale  = 20.0
+        self._bullet_max = max(cfg.bullet_count, 1)  # avoid div-by-zero
 
     def build(self, state: GameState) -> np.ndarray:
         cfg = self.cfg
@@ -158,8 +159,8 @@ class Config2ObsBuilder(ObservationBuilder):
         obs[0] = np.clip(state.bird.pos.y / cfg.screen_h, 0.0, 1.0)
         obs[1] = np.clip(state.bird.vel.y / self._vel_scale, -1.0, 1.0)
 
-        # Next two upcoming pipes
-        upcoming = [p for p in state.pipes if p.x + p.width > state.bird.pos.x]
+        # Next two upcoming non-destroyed pipes
+        upcoming = [p for p in state.pipes if p.x + p.width > state.bird.pos.x and not p.destroyed]
         upcoming.sort(key=lambda p: p.x)
 
         slots = [(2, 3, 4, 5), (6, 7, 8, 9)]
@@ -176,8 +177,9 @@ class Config2ObsBuilder(ObservationBuilder):
                 obs[bot_i]  = 0.7
                 obs[type_i] = 0.0   # default to HARD encoding
 
-        # Health
+        # Health and bullets
         obs[10] = np.clip(state.health / 100.0, 0.0, 1.0)
+        obs[11] = np.clip(state.bird.bullets / self._bullet_max, 0.0, 1.0)
 
         return obs
 
@@ -232,7 +234,7 @@ class Config2NoisyObsBuilder(ObservationBuilder):
       [10] health
     """
 
-    OBS_DIM    = 11
+    OBS_DIM    = 12
     _TYPE_NORM = 3.0
 
     # Noise std in normalised units (fraction of screen_h) per pipe type
@@ -252,7 +254,8 @@ class Config2NoisyObsBuilder(ObservationBuilder):
         seed: int | None = None,
     ):
         self.cfg  = cfg
-        self._vel_scale = 20.0
+        self._vel_scale  = 20.0
+        self._bullet_max = max(cfg.bullet_count, 1)
         self._rng = np.random.default_rng(seed)
         self._noise_std = {
             PipeType.HARD:    0.00,
@@ -273,8 +276,8 @@ class Config2NoisyObsBuilder(ObservationBuilder):
         obs[0] = np.clip(state.bird.pos.y / cfg.screen_h, 0.0, 1.0)
         obs[1] = np.clip(state.bird.vel.y / self._vel_scale, -1.0, 1.0)
 
-        # Next two upcoming pipes
-        upcoming = [p for p in state.pipes if p.x + p.width > state.bird.pos.x]
+        # Next two upcoming non-destroyed pipes
+        upcoming = [p for p in state.pipes if p.x + p.width > state.bird.pos.x and not p.destroyed]
         upcoming.sort(key=lambda p: p.x)
 
         slots = [(2, 3, 4, 5), (6, 7, 8, 9)]
@@ -295,8 +298,9 @@ class Config2NoisyObsBuilder(ObservationBuilder):
                 obs[bot_i]  = 0.7
                 obs[type_i] = 0.0
 
-        # Health
+        # Health and bullets
         obs[10] = np.clip(state.health / 100.0, 0.0, 1.0)
+        obs[11] = np.clip(state.bird.bullets / self._bullet_max, 0.0, 1.0)
 
         return obs
 
