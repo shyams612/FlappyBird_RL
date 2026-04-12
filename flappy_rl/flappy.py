@@ -277,123 +277,110 @@ def _find_claude() -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Analysis engine
+# Analysis engine (Claude-powered)
 # ---------------------------------------------------------------------------
 
-def _analyze_variant(exp_name: str, variant_name: str) -> dict | None:
-    """
-    Analyze a variant's training results and produce a suggestion dict.
-    Returns None if insufficient data.
-    """
-    exp_dir     = RUNS_DIR / exp_name
-    variant_dir = exp_dir / variant_name
-    stats       = _monitor_stats(variant_dir)
-    info        = _load_run_info(variant_dir)
+def _next_variant_name(exp_dir: Path, variant_name: str) -> str:
+    """Increment the numeric suffix: ppo → ppo2, ppo2 → ppo3."""
+    base = variant_name.rstrip("0123456789")
+    nums = [int(v.name[len(base):]) for v in _variants_for_exp(exp_dir)
+            if v.name.startswith(base) and v.name[len(base):].isdigit()]
+    next_num = (max(nums) + 1) if nums else 2
+    return f"{base}{next_num}"
 
-    if not stats or not info:
-        return None
 
-    rewards  = stats["rewards"]
-    algo     = info.get("algo", "PPO").lower()
-    episodes = stats["episodes"]
-    best     = stats["best_reward"]
-    l50_mean = stats["last50_mean"]
-    l50_len  = stats["last50_ep_len"]
-
-    observations = []
-    causes       = []
-    patch        = {}
-
-    # --- Detect policy collapse ---
-    # Find peak episode and check if last-50 is much lower
-    bucket_sz = max(episodes // 50, 1)
+def _build_claude_prompt(exp_name: str, variant_name: str,
+                         stats: dict, info: dict, features: dict) -> str:
+    rewards   = stats["rewards"]
+    episodes  = stats["episodes"]
+    bucket_sz = max(episodes // 40, 1)
     buckets   = []
     for i in range(0, len(rewards), bucket_sz):
         chunk = rewards[i:i+bucket_sz]
         buckets.append(sum(chunk) / len(chunk))
-    peak_bucket = max(range(len(buckets)), key=lambda i: buckets[i])
-    peak_frac   = peak_bucket / len(buckets)  # how far into training peak was
+    curve_str = "\n".join(
+        f"  ep {i*bucket_sz:>5}: {b:>8.1f}" for i, b in enumerate(buckets)
+    )
 
-    if best > 0 and l50_mean < best * 0.3 and peak_frac < 0.8:
-        observations.append(
-            f"Peak reward {best:.0f} at ~{int(peak_frac*100)}% of training, "
-            f"collapsed to last-50 mean {l50_mean:.0f} ({l50_mean/best*100:.0f}% of peak)"
-        )
-        if algo == "ppo":
-            causes.append("Policy collapse — high learning rate (3e-4) with no decay causes "
-                          "overshooting once policy is good")
-            causes.append("Zero entropy (ent_coef=0) — deterministic policy becomes brittle "
-                          "when episode lengths increase")
-            patch["ent_coef"]      = 0.01
-            patch["learning_rate"] = 1e-4
-        elif algo == "a2c":
-            causes.append("Policy collapse — A2C with no entropy can overfit to a local optimum")
-            patch["ent_coef"]      = 0.01
-            patch["learning_rate"] = 5e-4
+    algo             = info.get("algo", "?")
+    obs_builder      = info.get("obs_builder", "?")
+    reward_fn        = info.get("reward_fn", "?")
+    hyperparams      = info.get("hyperparams", {})
+    feature_items    = "\n".join(f"  {k}: {v}" for k, v in features.items())
+    hyperparam_items = "\n".join(f"  {k}: {v}" for k, v in hyperparams.items())
 
-    # --- Detect no learning ---
-    elif l50_mean < 0 or (best < 100 and episodes > 200):
-        observations.append(
-            f"Agent did not learn — best reward {best:.0f}, last-50 mean {l50_mean:.0f}"
-        )
-        if algo == "dqn":
-            causes.append("Replay buffer poisoned by early deaths — "
-                          "no positive signal before exploration ends")
-            causes.append("SurvivalReward (+1/frame) provides no bonus for passing pipes — "
-                          "sparse signal")
-            patch["reward_fn"]           = "scored"
-            patch["exploration_fraction"] = 0.2
-            patch["learning_starts"]      = 5_000
-        elif algo == "a2c":
-            causes.append("n_steps=128 may still be too short — "
-                          "pipe approach takes ~90 frames, credit barely reaches early flaps")
-            patch["n_steps"] = 256
+    # Valid patch keys Claude is allowed to suggest
+    patch_keys = """
+Allowed patch keys (stable-baselines3 hyperparams + special overrides):
+  PPO/A2C : learning_rate, n_steps, batch_size, n_epochs, gamma, gae_lambda,
+             clip_range, ent_coef, vf_coef, max_grad_norm
+  DQN     : learning_rate, buffer_size, learning_starts, batch_size, gamma,
+             train_freq, gradient_steps, target_update_interval,
+             exploration_fraction, exploration_final_eps
+  Special : reward_fn (one of: survival, health_aware, scored)
+            timesteps (total training steps, e.g. 2000000)
+"""
 
-    # --- Detect slow learning ---
-    elif l50_mean < best * 0.5 and l50_mean > 0:
-        observations.append(
-            f"Learning is slow — last-50 mean {l50_mean:.0f} is {l50_mean/best*100:.0f}% of best"
-        )
-        if algo == "ppo":
-            causes.append("Learning rate may be too high for stable convergence")
-            patch["learning_rate"] = 1e-4
-        elif algo == "dqn":
-            causes.append("Exploration ending too early — try longer exploration phase")
-            patch["exploration_fraction"] = 0.2
+    return f"""You are analyzing a deep RL training run for a modified Flappy Bird environment.
 
-    # --- Short episodes at end ---
-    if l50_len < 500 and best > 1000:
-        observations.append(
-            f"Episode length regressed — last-50 mean only {l50_len:.0f} frames "
-            f"despite best of {best:.0f}"
-        )
+## Experiment
+- Name: {exp_name}
+- Variant: {variant_name}
+- Algorithm: {algo}
+- Obs builder: {obs_builder}
+- Reward function: {reward_fn}
 
-    if not observations:
-        observations.append(
-            f"Training appears stable — best {best:.0f}, last-50 mean {l50_mean:.0f} "
-            f"({l50_mean/best*100:.0f}% of best)"
-        )
-        causes.append("Consider running longer (2M steps) to see if improvement continues")
-        patch["timesteps"] = 2_000_000
+## Environment features
+{feature_items}
 
-    # Build next variant name
-    base = variant_name.rstrip("0123456789")
-    nums = [int(v.name[len(base):]) for v in _variants_for_exp(exp_dir)
-            if v.name.startswith(base) and v.name[len(base):].isdigit()]
-    next_num    = (max(nums) + 1) if nums else 2
-    next_variant = f"{base}{next_num}"
+## Hyperparameters used
+{hyperparam_items}
 
-    return {
-        "exp_name":     exp_name,
-        "source":       variant_name,
-        "algo":         algo,
-        "next_variant": next_variant,
-        "patch_file":   f"patches/{next_variant}.yaml",
-        "patch_diff":   patch,
-        "observations": observations,
-        "causes":       causes,
-        "timestamp":    datetime.now().isoformat(),
-    }
+## Training statistics
+- Total episodes : {episodes}
+- Best reward    : {stats['best_reward']:.1f}
+- Last-50 mean   : {stats['last50_mean']:.1f}
+- Last-50 ep len : {stats['last50_ep_len']:.1f} frames
+
+## Reward curve (bucketed mean per ~{bucket_sz} episodes)
+{curve_str}
+
+## Environment context
+The bird navigates through pipes. Base reward: +1/frame alive, -100 on death.
+Pipe types: HARD (instant death on collision), SOFT/BRITTLE/FOAM (gradient damage —
+  near gap edge = max damage, far from gap = min damage, never instant death).
+HealthAwareReward: damage penalty scales inversely with current health (low health = bigger penalty).
+ScoredReward: +pipe_bonus per pipe cleared, to give DQN denser signal.
+Observation: bird_y, vel_y, next 2 pipes (dist, gap_top, gap_bot, type), health, bullets.
+Action: Discrete(4) — bit0=flap, bit1=shoot. Shooting destroys next non-hard pipe.
+
+## Your task
+1. In 3–5 sentences: diagnose what the reward curve shows and why it happened.
+   Be specific — reference the algorithm, reward function, and environment.
+2. Suggest hyperparameter changes to fix it.
+
+{patch_keys}
+End your response with a fenced yaml block containing ONLY the suggested overrides.
+Use only keys from the allowed list above. No text after the yaml block.
+
+Example format:
+```yaml
+ent_coef: 0.01
+learning_rate: 0.0001
+```"""
+
+
+def _parse_patch_from_output(output: str) -> dict:
+    """Extract the last ```yaml ... ``` block from Claude's output and parse it."""
+    import re
+    blocks = re.findall(r"```yaml\s*(.*?)```", output, re.DOTALL)
+    if not blocks:
+        return {}
+    try:
+        patch = yaml.safe_load(blocks[-1].strip())
+        return patch if isinstance(patch, dict) else {}
+    except yaml.YAMLError:
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -641,73 +628,6 @@ def cmd_train(exp_name: str, algo: str, variant: str | None = None):
     subprocess.run(cmd)
 
 
-def _build_claude_context(exp_name: str, variant_name: str,
-                          stats: dict, info: dict, features: dict) -> str:
-    """Build a rich context string to send to Claude for diagnosis."""
-    rewards  = stats["rewards"]
-    episodes = stats["episodes"]
-
-    # Bucketed curve as plain text
-    bucket_sz = max(episodes // 40, 1)
-    buckets   = []
-    for i in range(0, len(rewards), bucket_sz):
-        chunk = rewards[i:i+bucket_sz]
-        buckets.append(sum(chunk) / len(chunk))
-
-    curve_lines = []
-    for i, b in enumerate(buckets):
-        ep = i * bucket_sz
-        curve_lines.append(f"  ep {ep:>5}: {b:>8.1f}")
-    curve_str = "\n".join(curve_lines)
-
-    algo        = info.get("algo", "?")
-    obs_builder = info.get("obs_builder", "?")
-    reward_fn   = info.get("reward_fn", "?")
-    hyperparams = info.get("hyperparams", {})
-
-    feature_items = "\n".join(f"  {k}: {v}" for k, v in features.items())
-    hyperparam_items = "\n".join(f"  {k}: {v}" for k, v in hyperparams.items())
-
-    return f"""You are analyzing a deep RL training run for a modified Flappy Bird environment.
-
-## Experiment
-- Name: {exp_name}
-- Variant: {variant_name}
-- Algorithm: {algo}
-- Obs builder: {obs_builder}
-- Reward function: {reward_fn}
-
-## Environment features
-{feature_items}
-
-## Hyperparameters
-{hyperparam_items}
-
-## Training statistics
-- Total episodes: {episodes}
-- Best reward: {stats['best_reward']:.1f}
-- Last-50 mean reward: {stats['last50_mean']:.1f}
-- Last-50 mean episode length: {stats['last50_ep_len']:.1f} frames
-
-## Reward curve (bucketed mean per ~{bucket_sz} episodes)
-{curve_str}
-
-## Environment context
-The bird navigates through pipes. Reward is +1/frame alive, -100 on death.
-Pipe types: HARD (instant death), SOFT/BRITTLE/FOAM (gradient damage — near gap edge = max damage, far = min).
-HealthAwareReward scales damage penalty inversely with current health.
-Observation includes bird state, next 2 pipes (distance, gap top/bottom, type), health, bullets.
-Action space: Discrete(4) — bit0=flap, bit1=shoot. Shooting destroys the next non-hard pipe.
-
-## Task
-Diagnose what happened in this training run. Be specific about:
-1. What the reward curve pattern indicates (collapse, no learning, slow convergence, stable, etc.)
-2. Why it happened — cite the specific algorithm, reward function, or environment feature
-3. What hyperparameter changes would help and why
-
-Keep your response concise (under 200 words). Do not suggest code changes — only diagnose and explain."""
-
-
 def cmd_analyze(exp_name: str, variant_name: str):
     exp_dir = _find_exp(exp_name)
     if not exp_dir:
@@ -722,35 +642,54 @@ def cmd_analyze(exp_name: str, variant_name: str):
         print(f"  Not enough data to analyze '{exp_name}/{variant_name}'.")
         return
 
-    suggestion = _analyze_variant(exp_name, variant_name)
-    if not suggestion:
-        print(f"  Not enough data to analyze '{exp_name}/{variant_name}'.")
+    claude_bin = _find_claude()
+    if not claude_bin:
+        print("  Claude CLI not found — cannot analyze.")
+        print("  Install claude via: npm install -g @anthropic-ai/claude-code")
         return
 
-    # --- Claude diagnosis ---
-    meta     = _load_exp_meta(exp_dir)
-    features = meta.get("features", {})
-    context  = _build_claude_context(exp_name, variant_name, stats, info, features)
+    meta         = _load_exp_meta(exp_dir)
+    features     = meta.get("features", {})
+    algo         = info.get("algo", "ppo").lower()
+    next_variant = _next_variant_name(exp_dir, variant_name)
+    prompt       = _build_claude_prompt(exp_name, variant_name, stats, info, features)
 
     print(f"\n  [ANALYZE]  {exp_name} / {variant_name}")
+    print(f"  {'─'*55}\n")
+
+    # Capture output so we can parse the yaml block, but also stream to terminal
+    result = subprocess.run(
+        [claude_bin, "-p", prompt],
+        capture_output=True,
+        text=True,
+    )
+    output = result.stdout
+    print(output)
+
+    # Parse patch from Claude's yaml block
+    patch = _parse_patch_from_output(output)
+
+    if not patch:
+        print("  (no yaml patch block found in response — nothing to approve)")
+        return
+
     print(f"  {'─'*55}")
-    print(f"  Claude diagnosis:\n")
-
-    claude_bin = _find_claude()
-    if claude_bin:
-        subprocess.run([claude_bin, "-p", context])
-    else:
-        print("  (claude CLI not found — skipping narrative diagnosis)")
-
-    # --- Rule-based patch suggestion ---
-    print(f"\n  {'─'*55}")
-    print(f"  Suggested patch → {exp_dir}/{suggestion['patch_file']}:")
-    for k, v in suggestion["patch_diff"].items():
+    print(f"  Patch extracted:")
+    for k, v in patch.items():
         print(f"    {k}: {v}")
-    print(f"\n  Next variant : {suggestion['next_variant']}")
-    print(f"  Train with   : train {exp_name} {suggestion['algo']} {suggestion['next_variant']}")
+    print(f"\n  Next variant : {next_variant}")
+    print(f"  Train with   : train {exp_name} {algo} {next_variant}")
     print(f"\n  Type 'approve' to create patch + train, or 'reject' to discard.")
 
+    suggestion = {
+        "exp_name":     exp_name,
+        "source":       variant_name,
+        "algo":         algo,
+        "next_variant": next_variant,
+        "patch_file":   f"patches/{next_variant}.yaml",
+        "patch_diff":   patch,
+        "timestamp":    datetime.now().isoformat(),
+    }
     _save_suggestion(exp_dir, suggestion)
 
 
