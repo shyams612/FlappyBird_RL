@@ -309,6 +309,15 @@ def _build_claude_prompt(exp_name: str, variant_name: str,
     feature_items    = "\n".join(f"  {k}: {v}" for k, v in features.items())
     hyperparam_items = "\n".join(f"  {k}: {v}" for k, v in hyperparams.items())
 
+    # Carry forward special keys from current run so Claude doesn't lose them
+    special_active = []
+    if reward_fn and reward_fn != "SurvivalReward":
+        rname = {"ScoredReward": "scored", "HealthAwareReward": "health_aware"}.get(reward_fn, reward_fn)
+        special_active.append(f"reward_fn is currently '{rname}' — include it in the patch to keep it.")
+
+    special_note = ("\n## Active special overrides (must be carried forward if still appropriate)\n"
+                    + "\n".join(f"  {s}" for s in special_active)) if special_active else ""
+
     # Valid patch keys Claude is allowed to suggest
     patch_keys = """
 Allowed patch keys (stable-baselines3 hyperparams + special overrides):
@@ -317,8 +326,8 @@ Allowed patch keys (stable-baselines3 hyperparams + special overrides):
   DQN     : learning_rate, buffer_size, learning_starts, batch_size, gamma,
              train_freq, gradient_steps, target_update_interval,
              exploration_fraction, exploration_final_eps
-  Special : reward_fn (one of: survival, health_aware, scored)
-            timesteps (total training steps, e.g. 2000000)
+  Special : reward_fn (one of: survival, scored, health_aware, threshold_health)
+            timesteps (overrides total training steps, e.g. 2000000 — NOT passed to SB3)
 """
 
     return f"""You are analyzing a deep RL training run for a modified Flappy Bird environment.
@@ -349,10 +358,13 @@ Allowed patch keys (stable-baselines3 hyperparams + special overrides):
 The bird navigates through pipes. Base reward: +1/frame alive, -100 on death.
 Pipe types: HARD (instant death on collision), SOFT/BRITTLE/FOAM (gradient damage —
   near gap edge = max damage, far from gap = min damage, never instant death).
-HealthAwareReward: damage penalty scales inversely with current health (low health = bigger penalty).
+HealthAwareReward (continuous): damage penalty = damage × (100/health) × scale. Continuous scaling.
+ThresholdHealthReward: flat penalty above 25hp, sharp penalty (3x multiplier) below 25hp. Mode switch.
 ScoredReward: +pipe_bonus per pipe cleared, to give DQN denser signal.
 Observation: bird_y, vel_y, next 2 pipes (dist, gap_top, gap_bot, type), health, bullets.
 Action: Discrete(4) — bit0=flap, bit1=shoot. Shooting destroys next non-hard pipe.
+
+{special_note}
 
 ## Your task
 1. In 3–5 sentences: diagnose what the reward curve shows and why it happened.

@@ -8,9 +8,16 @@ To add a new reward signal:
   3. Pass it into FlappyBirdEnv — nothing else changes.
 
 Available:
-  SurvivalReward   — +1/frame alive, −100 on death  (default, v1)
-  ScoredReward     — SurvivalReward + bonus per pipe passed
-  HealthAwareReward — placeholder for Config 3+ experiments
+  SurvivalReward        — +1/frame alive, −100 on death  (default, v1)
+  ScoredReward          — SurvivalReward + bonus per pipe passed
+  HealthAwareReward     — continuous damage penalty scaling inversely with health
+  ThresholdHealthReward — flat small penalty above threshold, sharp penalty below it
+
+Health reward comparison (FOAM hit, 5hp damage):
+  HealthAwareReward (scale=0.5):
+    100hp → penalty 2.5   50hp → penalty 5.0   10hp → penalty 25.0
+  ThresholdHealthReward (threshold=25hp, scale=0.5, threshold_scale=3.0):
+    100hp → penalty 2.5   50hp → penalty 2.5   20hp → penalty 7.5 (3x multiplier kicks in)
 """
 
 from __future__ import annotations
@@ -143,5 +150,64 @@ class HealthAwareReward(RewardFn):
         if damage_taken > 0:
             urgency = self.max_health / prev.health   # 1.0 at full health, → ∞ near zero
             reward -= damage_taken * urgency * self.damage_scale
+
+        return reward
+
+
+# ---------------------------------------------------------------------------
+# ThresholdHealthReward
+# ---------------------------------------------------------------------------
+
+class ThresholdHealthReward(RewardFn):
+    """
+    Encodes an explicit mode switch: below a health threshold, the agent
+    should treat non-hard pipes as near-fatal and avoid them entirely.
+
+    Signal per frame:
+      +1                 — survival reward
+      +pipe_bonus        — each time a pipe column is passed
+      −damage_penalty    — on any damage taken:
+                           above threshold: flat penalty (damage × damage_scale)
+                           below threshold: amplified penalty (damage × damage_scale × threshold_scale)
+      −death_penalty     — on death
+
+    Penalty at full health (100hp, FOAM 5hp hit, scale=0.5):
+        above threshold → 5 × 0.5 = 2.5
+    Penalty below threshold (20hp, FOAM 5hp hit, scale=0.5, threshold_scale=3.0):
+        below threshold → 5 × 0.5 × 3.0 = 7.5
+
+    The sharp jump at the threshold is the behavioral specification:
+    "when health is critical, treat every hit as you would a hard pipe".
+    """
+
+    def __init__(
+        self,
+        death_penalty:     float = -100.0,
+        pipe_bonus:        float =   10.0,
+        damage_scale:      float =    0.5,
+        threshold:         float =   25.0,   # hp below which multiplier kicks in
+        threshold_scale:   float =    3.0,   # penalty multiplier below threshold
+    ):
+        self.death_penalty   = death_penalty
+        self.pipe_bonus      = pipe_bonus
+        self.damage_scale    = damage_scale
+        self.threshold       = threshold
+        self.threshold_scale = threshold_scale
+
+    def __call__(self, prev: GameState, curr: GameState, action: int) -> float:
+        if curr.terminated:
+            return self.death_penalty
+
+        reward = 1.0
+
+        # Pipe passing bonus
+        if curr.score > prev.score:
+            reward += self.pipe_bonus * (curr.score - prev.score)
+
+        # Damage penalty — mode switch at threshold
+        damage_taken = prev.health - curr.health
+        if damage_taken > 0:
+            multiplier = self.threshold_scale if prev.health <= self.threshold else 1.0
+            reward -= damage_taken * self.damage_scale * multiplier
 
         return reward

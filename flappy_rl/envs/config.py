@@ -87,6 +87,15 @@ class EnvConfig:
     # When False: flat damage from PIPE_DAMAGE dict regardless of where bird hits
     enable_gradient_damage: bool = False
 
+    # --------------------------------------------------------- health reward
+    # null     → SurvivalReward (health ignored in reward)
+    # continuous → HealthAwareReward (penalty scales continuously with health)
+    # threshold  → ThresholdHealthReward (sharp penalty below health_reward_threshold)
+    health_reward_fn: str | None  = None
+    health_reward_scale: float    = 0.5    # damage_scale for continuous
+    health_reward_threshold: float = 25.0  # hp below which threshold mode kicks in
+    health_reward_threshold_scale: float = 3.0  # penalty multiplier below threshold
+
     # --------------------------------------------------------------- computed
     @property
     def first_pipe_x(self) -> float:

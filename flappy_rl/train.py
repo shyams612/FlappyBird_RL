@@ -35,7 +35,7 @@ from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from envs.flappy_env import FlappyBirdEnv
 from envs.config import EnvConfig
 from envs.observations import SimpleObsBuilder, Config2ObsBuilder, Config2NoisyObsBuilder
-from envs.rewards import SurvivalReward, HealthAwareReward, ScoredReward
+from envs.rewards import SurvivalReward, HealthAwareReward, ScoredReward, ThresholdHealthReward
 
 
 # ---------------------------------------------------------------------------
@@ -115,10 +115,25 @@ def make_reward_fn(cfg: EnvConfig, reward_override: str | None = None):
         return ScoredReward()
     if reward_override == "survival":
         return SurvivalReward()
-    if reward_override == "health_aware":
-        return HealthAwareReward()
+    if reward_override == "health_aware" or reward_override == "continuous":
+        return HealthAwareReward(damage_scale=cfg.health_reward_scale)
+    if reward_override == "threshold_health" or reward_override == "threshold":
+        return ThresholdHealthReward(
+            damage_scale=cfg.health_reward_scale,
+            threshold=cfg.health_reward_threshold,
+            threshold_scale=cfg.health_reward_threshold_scale,
+        )
+    # Fall back to config default
+    if cfg.health_reward_fn == "continuous":
+        return HealthAwareReward(damage_scale=cfg.health_reward_scale)
+    if cfg.health_reward_fn == "threshold":
+        return ThresholdHealthReward(
+            damage_scale=cfg.health_reward_scale,
+            threshold=cfg.health_reward_threshold,
+            threshold_scale=cfg.health_reward_threshold_scale,
+        )
     if cfg.enable_pipe_variants:
-        return HealthAwareReward()
+        return HealthAwareReward(damage_scale=cfg.health_reward_scale)
     return SurvivalReward()
 
 
@@ -161,9 +176,9 @@ def _apply_patch(base_params: dict, patch: dict) -> tuple[dict, dict]:
     Apply patch overrides to base_params.
     Returns (merged_params, diff) where diff contains only changed keys.
     Special keys handled separately (not passed to SB3):
-      reward_fn, obs_builder
+      reward_fn, obs_builder, timesteps
     """
-    SB3_SKIP = {"reward_fn", "obs_builder"}
+    SB3_SKIP = {"reward_fn", "obs_builder", "timesteps"}
     merged = base_params.copy()
     diff   = {}
     for k, v in patch.items():
@@ -282,6 +297,11 @@ def main() -> None:
     # --- Base hyperparams + patch ---
     base_params = ALGO_PARAMS[args.algo].copy()
     sb3_params, patch_diff = _apply_patch(base_params, patch_dict)
+
+    # --- timesteps: patch overrides CLI arg ---
+    if "timesteps" in patch_dict:
+        args.timesteps = int(patch_dict["timesteps"])
+        print(f"[train] timesteps   : {args.timesteps:,}  (overridden by patch)")
 
     # --- Reward / obs (patchable via patch yaml) ---
     reward_override = patch_dict.get("reward_fn")

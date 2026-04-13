@@ -51,3 +51,9 @@ enable_bullets: false
 bullet_count: 10
 enable_wind: false
 enable_health_kits: false
+
+# --- health reward ---
+health_reward_fn: continuous
+health_reward_scale: 0.5
+health_reward_threshold: 25.0
+health_reward_threshold_scale: 3.0
