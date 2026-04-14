@@ -1,0 +1,26 @@
+# Stress test: high foam density, low starting health, variable gap sizes
+# 50% of episodes use min gap, 50% sample uniform(min, max)
+exp: foam
+episodes: 50
+deterministic: true
+seed: 42
+max_frames: 3000       # cap at 50s to keep benchmarks fast
+health: 20.0           # start low to test health-aware behavior
+foam_pct: 0.7          # 70% foam pipes
+gap:
+  hard:
+    min: 120
+    max: 160
+  foam:
+    min: 90
+    max: 130
+  soft:
+    min: 80
+    max: 110
+  brittle:
+    min: 70
+    max: 100
+variants:
+  - ppo2
+  - ppo_threshold
+  - ppo_exponential

@@ -74,8 +74,24 @@ class FlappyBirdEnv(gymnasium.Env):
         # gets a different random layout (no memorisation of a single track).
         episode_seed = seed
         self.obs_builder.reset()                        # clear frame stacks etc.
-        self._state = GameState.reset(self.cfg, seed=episode_seed)
-        # Allow per-episode health override via options dict (useful for eval)
+
+        # Build an episode-level config override from options dict
+        # Supported keys: health, gap_hard, gap_foam, gap_soft, gap_brittle, max_frames
+        ep_cfg = self.cfg
+        if options:
+            import dataclasses
+            overrides = {}
+            if "gap_hard"    in options: overrides["gap_height"]         = float(options["gap_hard"])
+            if "gap_foam"    in options: overrides["gap_height_foam"]    = float(options["gap_foam"])
+            if "gap_soft"    in options: overrides["gap_height_soft"]    = float(options["gap_soft"])
+            if "gap_brittle" in options: overrides["gap_height_brittle"] = float(options["gap_brittle"])
+            if "max_frames"  in options: overrides["max_episode_frames"] = int(options["max_frames"])
+            if overrides:
+                ep_cfg = dataclasses.replace(ep_cfg, **overrides)
+
+        self._state = GameState.reset(ep_cfg, seed=episode_seed)
+
+        # Health override applied after reset
         if options and "health" in options:
             self._state = GameState(
                 bird    = self._state.bird,

@@ -97,7 +97,10 @@ def _infer_algo(run_info: dict, variant: str) -> str:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--exp",           required=True,
+    p.add_argument("--config",        default=None,
+                   help="Load scenario from a benchmark YAML config (e.g. benchmark_configs/stress_foam.yaml). "
+                        "Sets exp, health, foam_pct, and gap overrides. --variant still required.")
+    p.add_argument("--exp",           default=None,
                    help="Experiment name (e.g. baseline, foam, full)")
     p.add_argument("--variant",       required=True,
                    help="Variant name (e.g. ppo, ppo_v2, dqn_scored)")
@@ -118,14 +121,48 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    # --- Resolve scenario from config file or inline args ---
+    exp_name = args.exp
+    health   = args.health
+    foam_pct = args.foam_pct
+    gap_overrides: dict = {}
+
+    if args.config is not None:
+        import random
+        raw = yaml.safe_load(Path(args.config).read_text())
+        if exp_name is None:
+            exp_name = raw.get("exp")
+        if health is None and "health" in raw:
+            health = float(raw["health"])
+        if foam_pct is None and "foam_pct" in raw:
+            foam_pct = float(raw["foam_pct"])
+        # Sample gap sizes once (same logic as benchmark, fixed seed for reproducibility)
+        rng = random.Random(raw.get("seed", None))
+        gap_raw = raw.get("gap", {}) or {}
+        for key, opt_key in [("hard", "gap_hard"), ("foam", "gap_foam"),
+                              ("soft", "gap_soft"), ("brittle", "gap_brittle")]:
+            gcfg = gap_raw.get(key)
+            if gcfg:
+                if "value" in gcfg:
+                    gap_overrides[opt_key] = float(gcfg["value"])
+                else:
+                    lo = float(gcfg.get("min", 0))
+                    hi = float(gcfg.get("max", lo))
+                    gap_overrides[opt_key] = lo if rng.random() < 0.5 else lo + rng.random() * (hi - lo)
+        print(f"[eval] config     : {Path(args.config).name}")
+
+    if exp_name is None:
+        print("ERROR: --exp is required (or provide --config with an exp field).")
+        return
+
     # --- Load exact env from training snapshot ---
-    cfg      = _load_env(args.exp)
-    run_info = _load_run_info(args.exp, args.variant)
-    ckpt     = _best_checkpoint(args.exp, args.variant)
+    cfg      = _load_env(exp_name)
+    run_info = _load_run_info(exp_name, args.variant)
+    ckpt     = _best_checkpoint(exp_name, args.variant)
 
     # --- Pipe weight override ---
-    if args.foam_pct is not None:
-        foam = max(0.0, min(1.0, args.foam_pct))
+    if foam_pct is not None:
+        foam = max(0.0, min(1.0, foam_pct))
         rest = (1.0 - foam) / 3.0
         cfg.pipe_weight_foam    = foam
         cfg.pipe_weight_hard    = rest
@@ -138,18 +175,20 @@ def main() -> None:
 
     ckpt_label = "best_model" if "best_model" in ckpt else Path(ckpt).name
 
-    print(f"[eval] experiment : {args.exp}")
+    print(f"[eval] experiment : {exp_name}")
     print(f"[eval] variant    : {args.variant}")
     print(f"[eval] algo       : {algo.upper()}")
     print(f"[eval] checkpoint : {ckpt_label}")
     print(f"[eval] obs builder: {obs_builder.__class__.__name__}")
     print(f"[eval] episodes   : {args.episodes}")
-    if args.health is not None:
-        print(f"[eval] start health: {args.health} hp  (override)")
-    if args.foam_pct is not None:
+    if health is not None:
+        print(f"[eval] start health: {health} hp  (override)")
+    if foam_pct is not None:
         print(f"[eval] pipe mix   : foam={cfg.pipe_weight_foam:.0%}  "
               f"hard={cfg.pipe_weight_hard:.0%}  soft={cfg.pipe_weight_soft:.0%}  "
               f"brittle={cfg.pipe_weight_brittle:.0%}  (override)")
+    if gap_overrides:
+        print(f"[eval] gaps       : {gap_overrides}")
     print("[eval] ESC/Q to quit early")
 
     model = ALGO_CLASSES[algo].load(ckpt)
@@ -158,8 +197,11 @@ def main() -> None:
     ep_rewards = []
 
     for ep in range(args.episodes):
-        options = {"health": args.health} if args.health is not None else None
-        obs, _ = env.reset(options=options)
+        options: dict = {}
+        if health is not None:
+            options["health"] = health
+        options.update(gap_overrides)
+        obs, _ = env.reset(options=options if options else None)
         total_reward = 0.0
         done = False
 

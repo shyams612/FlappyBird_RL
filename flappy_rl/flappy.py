@@ -409,7 +409,11 @@ def cmd_help():
   show exp <exp>                Full details + all variant results
   stats exp <exp> [variant]     Training curves
   compare <exp> <algo>          All variants for one algo side by side
-  eval <exp> <variant> [health] [foam%] Launch visual eval  e.g. eval foam ppo_exponential 20 0.7
+  eval <exp> <variant> [health] [foam%]           Visual eval  e.g. eval foam ppo_exponential 20 0.7
+  eval-config <config> <variant>                  Visual eval using a benchmark config file
+  benchmark <exp> <v1> [v2 ...] [--episodes N] [--health H] [--foam F] [--max-frames N]
+                                                  Headless multi-episode stats comparison
+  benchmark-config <path>         Run benchmark from YAML config file (e.g. benchmark_configs/stress_foam.yaml)
   train <exp> <algo> [variant]  Train or resume a variant
   analyze <exp> <variant>       Diagnose and suggest next patch
   approve                       Run the pending suggestion
@@ -608,25 +612,49 @@ def cmd_compare(exp_name: str, algo: str):
         print()
 
 
-def cmd_eval(exp_name: str, variant: str, health: float | None = None, foam_pct: float | None = None):
-    exp_dir = _find_exp(exp_name)
-    if not exp_dir:
-        print(f"  Experiment '{exp_name}' not found.")
-        return
-
-    variant_dir = exp_dir / variant
-    ckpt        = _best_checkpoint(variant_dir)
-    if not ckpt:
-        print(f"  No checkpoint found for {exp_name}/{variant}.")
-        return
-
-    ckpt_label = "best_model" if (variant_dir / "best_model.zip").exists() else Path(ckpt).name
-    print(f"  Launching eval: {exp_name}/{variant}  [{ckpt_label}]")
-    cmd = [sys.executable, "evals.py", "--exp", exp_name, "--variant", variant]
+def cmd_eval(exp_name: str, variant: str, health: float | None = None,
+             foam_pct: float | None = None, config_path: str | None = None):
+    cmd = [sys.executable, "evals.py", "--variant", variant]
+    if config_path is not None:
+        cmd += ["--config", config_path]
+    else:
+        exp_dir = _find_exp(exp_name)
+        if not exp_dir:
+            print(f"  Experiment '{exp_name}' not found.")
+            return
+        variant_dir = exp_dir / variant
+        ckpt        = _best_checkpoint(variant_dir)
+        if not ckpt:
+            print(f"  No checkpoint found for {exp_name}/{variant}.")
+            return
+        ckpt_label = "best_model" if (variant_dir / "best_model.zip").exists() else Path(ckpt).name
+        print(f"  Launching eval: {exp_name}/{variant}  [{ckpt_label}]")
+        cmd += ["--exp", exp_name]
     if health is not None:
         cmd += ["--health", str(health)]
     if foam_pct is not None:
         cmd += ["--foam-pct", str(foam_pct)]
+    subprocess.run(cmd)
+
+
+def cmd_benchmark(exp_name: str, variants: list[str],
+                  episodes: int = 100,
+                  health: float | None = None,
+                  foam_pct: float | None = None,
+                  max_frames: int | None = None,
+                  config_path: str | None = None):
+    if config_path is not None:
+        cmd = [sys.executable, "benchmark.py", "--config", config_path]
+        subprocess.run(cmd)
+        return
+    cmd = [sys.executable, "benchmark.py", "--exp", exp_name,
+           "--variants"] + variants + ["--episodes", str(episodes)]
+    if health is not None:
+        cmd += ["--health", str(health)]
+    if foam_pct is not None:
+        cmd += ["--foam-pct", str(foam_pct)]
+    if max_frames is not None:
+        cmd += ["--max-frames", str(max_frames)]
     subprocess.run(cmd)
 
 
@@ -814,6 +842,9 @@ def run_shell():
             cmd_stats(parts[2], vf)
         elif cmd == "compare" and len(parts) >= 3:
             cmd_compare(parts[1], parts[2])
+        elif cmd == "eval-config" and len(parts) >= 3:
+            # eval-config <config_path> <variant>
+            cmd_eval("", parts[2], config_path=parts[1])
         elif cmd == "eval" and len(parts) >= 3:
             health   = None
             foam_pct = None
@@ -827,6 +858,33 @@ def run_shell():
                 except ValueError:
                     pass
             cmd_eval(parts[1], parts[2], health, foam_pct)
+        elif cmd == "benchmark-config" and len(parts) >= 2:
+            # benchmark-config <path>
+            cmd_benchmark("", [], config_path=parts[1])
+        elif cmd == "benchmark" and len(parts) >= 3:
+            # benchmark <exp> <v1> [v2 v3 ...] [--episodes N] [--health H] [--foam F] [--max-frames N]
+            variants   = []
+            episodes   = 100
+            health     = None
+            foam_pct   = None
+            max_frames = None
+            i = 2
+            while i < len(parts):
+                p = parts[i]
+                if p == "--episodes" and i+1 < len(parts):
+                    episodes = int(parts[i+1]); i += 2
+                elif p == "--health" and i+1 < len(parts):
+                    health = float(parts[i+1]); i += 2
+                elif p == "--foam" and i+1 < len(parts):
+                    foam_pct = float(parts[i+1]); i += 2
+                elif p == "--max-frames" and i+1 < len(parts):
+                    max_frames = int(parts[i+1]); i += 2
+                else:
+                    variants.append(p); i += 1
+            if variants:
+                cmd_benchmark(parts[1], variants, episodes, health, foam_pct, max_frames)
+            else:
+                print("  Usage: benchmark <exp> <v1> [v2 ...] [--episodes N] [--health H] [--foam F] [--max-frames N]")
         elif cmd == "train" and len(parts) >= 3:
             variant = parts[3] if len(parts) >= 4 else None
             cmd_train(parts[1], parts[2], variant)
