@@ -105,6 +105,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--deterministic", type=lambda x: x.lower() != "false", default=True)
     p.add_argument("--health",        type=float, default=None,
                    help="Override starting health (e.g. 20.0) to test low-health behavior")
+    p.add_argument("--foam-pct",      type=float, default=None,
+                   help="Override foam pipe percentage 0.0-1.0 (e.g. 0.7). "
+                        "Remaining weight split equally across hard/soft/brittle.")
     return p.parse_args()
 
 
@@ -120,6 +123,15 @@ def main() -> None:
     run_info = _load_run_info(args.exp, args.variant)
     ckpt     = _best_checkpoint(args.exp, args.variant)
 
+    # --- Pipe weight override ---
+    if args.foam_pct is not None:
+        foam = max(0.0, min(1.0, args.foam_pct))
+        rest = (1.0 - foam) / 3.0
+        cfg.pipe_weight_foam    = foam
+        cfg.pipe_weight_hard    = rest
+        cfg.pipe_weight_soft    = rest
+        cfg.pipe_weight_brittle = rest
+
     obs_name    = run_info.get("obs_builder")
     obs_builder = _make_obs_builder(obs_name, cfg)
     algo        = _infer_algo(run_info, args.variant)
@@ -134,6 +146,10 @@ def main() -> None:
     print(f"[eval] episodes   : {args.episodes}")
     if args.health is not None:
         print(f"[eval] start health: {args.health} hp  (override)")
+    if args.foam_pct is not None:
+        print(f"[eval] pipe mix   : foam={cfg.pipe_weight_foam:.0%}  "
+              f"hard={cfg.pipe_weight_hard:.0%}  soft={cfg.pipe_weight_soft:.0%}  "
+              f"brittle={cfg.pipe_weight_brittle:.0%}  (override)")
     print("[eval] ESC/Q to quit early")
 
     model = ALGO_CLASSES[algo].load(ckpt)

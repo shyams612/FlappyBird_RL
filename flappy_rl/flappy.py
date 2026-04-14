@@ -409,7 +409,7 @@ def cmd_help():
   show exp <exp>                Full details + all variant results
   stats exp <exp> [variant]     Training curves
   compare <exp> <algo>          All variants for one algo side by side
-  eval <exp> <variant> [health] Launch visual eval (health overrides start hp, e.g. eval foam ppo_exponential 20)
+  eval <exp> <variant> [health] [foam%] Launch visual eval  e.g. eval foam ppo_exponential 20 0.7
   train <exp> <algo> [variant]  Train or resume a variant
   analyze <exp> <variant>       Diagnose and suggest next patch
   approve                       Run the pending suggestion
@@ -608,7 +608,7 @@ def cmd_compare(exp_name: str, algo: str):
         print()
 
 
-def cmd_eval(exp_name: str, variant: str, health: float | None = None):
+def cmd_eval(exp_name: str, variant: str, health: float | None = None, foam_pct: float | None = None):
     exp_dir = _find_exp(exp_name)
     if not exp_dir:
         print(f"  Experiment '{exp_name}' not found.")
@@ -625,6 +625,8 @@ def cmd_eval(exp_name: str, variant: str, health: float | None = None):
     cmd = [sys.executable, "evals.py", "--exp", exp_name, "--variant", variant]
     if health is not None:
         cmd += ["--health", str(health)]
+    if foam_pct is not None:
+        cmd += ["--foam-pct", str(foam_pct)]
     subprocess.run(cmd)
 
 
@@ -813,8 +815,18 @@ def run_shell():
         elif cmd == "compare" and len(parts) >= 3:
             cmd_compare(parts[1], parts[2])
         elif cmd == "eval" and len(parts) >= 3:
-            health = float(parts[3]) if len(parts) >= 4 else None
-            cmd_eval(parts[1], parts[2], health)
+            health   = None
+            foam_pct = None
+            for part in parts[3:]:
+                try:
+                    val = float(part)
+                    if val <= 1.0:
+                        foam_pct = val
+                    else:
+                        health = val
+                except ValueError:
+                    pass
+            cmd_eval(parts[1], parts[2], health, foam_pct)
         elif cmd == "train" and len(parts) >= 3:
             variant = parts[3] if len(parts) >= 4 else None
             cmd_train(parts[1], parts[2], variant)
