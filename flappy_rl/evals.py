@@ -103,6 +103,8 @@ def parse_args() -> argparse.Namespace:
                    help="Variant name (e.g. ppo, ppo_v2, dqn_scored)")
     p.add_argument("--episodes",      type=int, default=3)
     p.add_argument("--deterministic", type=lambda x: x.lower() != "false", default=True)
+    p.add_argument("--health",        type=float, default=None,
+                   help="Override starting health (e.g. 20.0) to test low-health behavior")
     return p.parse_args()
 
 
@@ -130,6 +132,8 @@ def main() -> None:
     print(f"[eval] checkpoint : {ckpt_label}")
     print(f"[eval] obs builder: {obs_builder.__class__.__name__}")
     print(f"[eval] episodes   : {args.episodes}")
+    if args.health is not None:
+        print(f"[eval] start health: {args.health} hp  (override)")
     print("[eval] ESC/Q to quit early")
 
     model = ALGO_CLASSES[algo].load(ckpt)
@@ -138,7 +142,8 @@ def main() -> None:
     ep_rewards = []
 
     for ep in range(args.episodes):
-        obs, _ = env.reset()
+        options = {"health": args.health} if args.health is not None else None
+        obs, _ = env.reset(options=options)
         total_reward = 0.0
         done = False
 

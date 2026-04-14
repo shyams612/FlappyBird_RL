@@ -75,6 +75,17 @@ class FlappyBirdEnv(gymnasium.Env):
         episode_seed = seed
         self.obs_builder.reset()                        # clear frame stacks etc.
         self._state = GameState.reset(self.cfg, seed=episode_seed)
+        # Allow per-episode health override via options dict (useful for eval)
+        if options and "health" in options:
+            self._state = GameState(
+                bird    = self._state.bird,
+                pipes   = self._state.pipes,
+                spawner = self._state.spawner,
+                cfg     = self._state.cfg,
+                frame   = self._state.frame,
+                score   = self._state.score,
+                health  = float(options["health"]),
+            )
         obs = self.obs_builder.build(self._state)
         return obs, self._info()
 

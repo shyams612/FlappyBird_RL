@@ -409,7 +409,7 @@ def cmd_help():
   show exp <exp>                Full details + all variant results
   stats exp <exp> [variant]     Training curves
   compare <exp> <algo>          All variants for one algo side by side
-  eval <exp> <variant>          Launch visual eval
+  eval <exp> <variant> [health] Launch visual eval (health overrides start hp, e.g. eval foam ppo_exponential 20)
   train <exp> <algo> [variant]  Train or resume a variant
   analyze <exp> <variant>       Diagnose and suggest next patch
   approve                       Run the pending suggestion
@@ -608,7 +608,7 @@ def cmd_compare(exp_name: str, algo: str):
         print()
 
 
-def cmd_eval(exp_name: str, variant: str):
+def cmd_eval(exp_name: str, variant: str, health: float | None = None):
     exp_dir = _find_exp(exp_name)
     if not exp_dir:
         print(f"  Experiment '{exp_name}' not found.")
@@ -622,7 +622,10 @@ def cmd_eval(exp_name: str, variant: str):
 
     ckpt_label = "best_model" if (variant_dir / "best_model.zip").exists() else Path(ckpt).name
     print(f"  Launching eval: {exp_name}/{variant}  [{ckpt_label}]")
-    subprocess.run([sys.executable, "evals.py", "--exp", exp_name, "--variant", variant])
+    cmd = [sys.executable, "evals.py", "--exp", exp_name, "--variant", variant]
+    if health is not None:
+        cmd += ["--health", str(health)]
+    subprocess.run(cmd)
 
 
 def cmd_train(exp_name: str, algo: str, variant: str | None = None):
@@ -810,7 +813,8 @@ def run_shell():
         elif cmd == "compare" and len(parts) >= 3:
             cmd_compare(parts[1], parts[2])
         elif cmd == "eval" and len(parts) >= 3:
-            cmd_eval(parts[1], parts[2])
+            health = float(parts[3]) if len(parts) >= 4 else None
+            cmd_eval(parts[1], parts[2], health)
         elif cmd == "train" and len(parts) >= 3:
             variant = parts[3] if len(parts) >= 4 else None
             cmd_train(parts[1], parts[2], variant)
