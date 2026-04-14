@@ -211,3 +211,66 @@ class ThresholdHealthReward(RewardFn):
             reward -= damage_taken * self.damage_scale * multiplier
 
         return reward
+
+
+# ---------------------------------------------------------------------------
+# ExponentialHealthReward
+# ---------------------------------------------------------------------------
+
+class ExponentialHealthReward(RewardFn):
+    """
+    Damage penalty grows as an exponential function of health lost.
+
+    x = 1.0 - (health / max_health)   # 0 at full health, 1 at 0hp
+    multiplier = exp(k * x)            # 1.0 at full health, e^k near death
+
+    This produces a smooth curve that rises slowly at high health and
+    accelerates steeply as health depletes — no discontinuous cliff,
+    but strong urgency near death.
+
+    k (steepness) controls where the curve "bends":
+      k=2: gentle curve, moderate urgency at low health
+      k=3: curve bends around 25hp (x=0.75) — recommended
+      k=4: steep curve, very strong urgency below 25hp
+
+    Penalty per 5hp damage hit (scale=0.5, k=3):
+      100hp (x=0.00): 0.5 × exp(0.00) = 0.50
+       75hp (x=0.25): 0.5 × exp(0.75) = 1.06
+       50hp (x=0.50): 0.5 × exp(1.50) = 2.24
+       25hp (x=0.75): 0.5 × exp(2.25) = 4.74
+       10hp (x=0.90): 0.5 × exp(2.70) = 7.45
+    """
+
+    def __init__(
+        self,
+        death_penalty: float = -100.0,
+        pipe_bonus:    float =   10.0,
+        damage_scale:  float =    0.5,
+        steepness:     float =    3.0,   # k — higher = steeper curve
+        max_health:    float =  100.0,
+    ):
+        self.death_penalty = death_penalty
+        self.pipe_bonus    = pipe_bonus
+        self.damage_scale  = damage_scale
+        self.steepness     = steepness
+        self.max_health    = max_health
+
+    def __call__(self, prev: GameState, curr: GameState, action: int) -> float:
+        if curr.terminated:
+            return self.death_penalty
+
+        reward = 1.0
+
+        # Pipe passing bonus
+        if curr.score > prev.score:
+            reward += self.pipe_bonus * (curr.score - prev.score)
+
+        # Damage penalty — exponential urgency scaling
+        damage_taken = prev.health - curr.health
+        if damage_taken > 0:
+            import math
+            x          = 1.0 - (prev.health / self.max_health)
+            multiplier = math.exp(self.steepness * x)
+            reward    -= damage_taken * self.damage_scale * multiplier
+
+        return reward

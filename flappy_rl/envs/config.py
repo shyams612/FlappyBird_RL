@@ -92,9 +92,10 @@ class EnvConfig:
     # continuous → HealthAwareReward (penalty scales continuously with health)
     # threshold  → ThresholdHealthReward (sharp penalty below health_reward_threshold)
     health_reward_fn: str | None  = None
-    health_reward_scale: float    = 0.5    # damage_scale for continuous
+    health_reward_scale: float    = 0.5    # damage_scale for all health reward variants
     health_reward_threshold: float = 25.0  # hp below which threshold mode kicks in
     health_reward_threshold_scale: float = 3.0  # penalty multiplier below threshold
+    health_reward_steepness: float = 3.0   # k for exponential — higher = steeper curve
 
     # --------------------------------------------------------------- computed
     @property

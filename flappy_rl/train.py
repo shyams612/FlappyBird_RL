@@ -35,7 +35,7 @@ from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from envs.flappy_env import FlappyBirdEnv
 from envs.config import EnvConfig
 from envs.observations import SimpleObsBuilder, Config2ObsBuilder, Config2NoisyObsBuilder
-from envs.rewards import SurvivalReward, HealthAwareReward, ScoredReward, ThresholdHealthReward
+from envs.rewards import SurvivalReward, HealthAwareReward, ScoredReward, ThresholdHealthReward, ExponentialHealthReward
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +123,11 @@ def make_reward_fn(cfg: EnvConfig, reward_override: str | None = None):
             threshold=cfg.health_reward_threshold,
             threshold_scale=cfg.health_reward_threshold_scale,
         )
+    if reward_override == "exponential_health" or reward_override == "exponential":
+        return ExponentialHealthReward(
+            damage_scale=cfg.health_reward_scale,
+            steepness=cfg.health_reward_steepness,
+        )
     # Fall back to config default
     if cfg.health_reward_fn == "continuous":
         return HealthAwareReward(damage_scale=cfg.health_reward_scale)
@@ -131,6 +136,11 @@ def make_reward_fn(cfg: EnvConfig, reward_override: str | None = None):
             damage_scale=cfg.health_reward_scale,
             threshold=cfg.health_reward_threshold,
             threshold_scale=cfg.health_reward_threshold_scale,
+        )
+    if cfg.health_reward_fn == "exponential":
+        return ExponentialHealthReward(
+            damage_scale=cfg.health_reward_scale,
+            steepness=cfg.health_reward_steepness,
         )
     if cfg.enable_pipe_variants:
         return HealthAwareReward(damage_scale=cfg.health_reward_scale)
