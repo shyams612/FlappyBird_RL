@@ -1,0 +1,57 @@
+# Config 2 Simple — Pipe variants, flat damage, normal gaps
+# Pipe variants are enabled (HARD/SOFT/BRITTLE/FOAM) but:
+#   - Damage is flat (not gradient) — same damage wherever the bird hits
+#   - All gaps are the same size as Config 1 (160px) — no precision penalty
+#   - Pipes shatter on survivable hit, bird passes through
+#
+# Use this to establish a baseline for pipe variant learning before
+# introducing gradient damage and tighter gaps.
+#
+# Observation builder : Config2ObsBuilder  (11-dim)
+# Reward function     : HealthAwareReward  (auto-selected)
+
+# --- screen ---
+screen_w: 800
+screen_h: 600
+fps: 60
+
+# --- physics ---
+physics_mode: discrete
+gravity: 0.5
+flap_strength: -5.0
+
+# --- scrolling ---
+scroll_speed: 3.0
+
+# --- pipes ---
+pipe_width: 60
+pipe_spacing: 280
+gap_height: 160          # same for all pipe types — no tighter gaps
+gap_y_min: 80
+gap_y_max: 360
+
+# Per-type gap heights — set equal to gap_height (no tighter gaps in this config)
+gap_height_soft: 160
+gap_height_brittle: 160
+gap_height_foam: 160
+
+# --- health ---
+health_start: 100.0
+passive_drain: 0.0
+
+# --- misc ---
+bird_x: 150
+max_episode_frames: 18000
+
+# --- feature flags ---
+enable_pipe_variants: true
+enable_gradient_damage: false    # flat damage — same wherever bird hits pipe
+pipe_weight_hard: 0.7
+pipe_weight_soft: 0.1
+pipe_weight_brittle: 0.1
+pipe_weight_foam: 0.1
+invincibility_duration: 30
+
+enable_bullets: false
+enable_wind: false
+enable_health_kits: false

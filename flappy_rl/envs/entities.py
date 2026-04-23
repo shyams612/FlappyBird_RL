@@ -63,11 +63,27 @@ class PipeType(IntEnum):
     FOAM    = 3   # -5 hp   (Config 2+)
 
 
+# Flat damage — used for HARD only (instant death sentinel)
 PIPE_DAMAGE: dict[PipeType, float] = {
-    PipeType.HARD:    float("inf"),   # treated as instant death
-    PipeType.SOFT:    10.0,
+    PipeType.HARD:    float("inf"),   # instant death
+    PipeType.SOFT:    10.0,           # legacy flat value — superseded by PIPE_DAMAGE_RANGE
     PipeType.BRITTLE: 25.0,
     PipeType.FOAM:     5.0,
+}
+
+# Gradient damage for non-hard pipes: (min_damage, max_damage)
+# min_damage — far from gap (near ceiling/floor): cheap crash-through zone
+# max_damage — near gap edge: costliest hit for this pipe type, but never instant death
+#
+# Gradient direction: near gap edge = most damage, far from gap = least damage.
+# This creates emergent health-aware behavior:
+#   High health  → crash through pipe far from gap (low damage), no precision needed
+#   Low health   → must thread gap accurately OR seek health kits before attempting
+PIPE_DAMAGE_RANGE: dict[PipeType, tuple[float, float]] = {
+    PipeType.HARD:    (float("inf"), float("inf")),  # instant death everywhere — not gradient
+    PipeType.SOFT:    ( 2.0, 10.0),                  # 2 hp far from gap → 10 hp near gap edge
+    PipeType.BRITTLE: ( 8.0, 25.0),                  # 8 hp far from gap → 25 hp near gap edge
+    PipeType.FOAM:    ( 1.0,  5.0),                  # 1 hp far from gap →  5 hp near gap edge
 }
 
 
@@ -83,6 +99,8 @@ class Bird:
     height: float = 24
     alive: bool   = True
     health: float = 100.0
+    invincibility_frames: int = 0   # frames of damage immunity after a non-hard pipe hit
+    bullets: int = 10               # remaining bullets for shooting pipes
 
     @property
     def rect(self) -> Rect:
@@ -101,6 +119,8 @@ class Bird:
             height=self.height,
             alive=self.alive,
             health=self.health,
+            invincibility_frames=self.invincibility_frames,
+            bullets=self.bullets,
         )
 
 
@@ -116,6 +136,8 @@ class Pipe:
     pipe_type: PipeType = PipeType.HARD
     width: float        = 60
     passed: bool        = False   # flipped once bird x > pipe x+width (for scoring)
+    shattered: bool     = False   # non-hard pipe hit in safe zone — no further collision
+    destroyed: bool     = False   # shot by bird — removed from collision and rendering
 
     @property
     def top_rect(self) -> Rect:
@@ -135,4 +157,6 @@ class Pipe:
             pipe_type=self.pipe_type,
             width=self.width,
             passed=self.passed,
+            shattered=self.shattered,
+            destroyed=self.destroyed,
         )

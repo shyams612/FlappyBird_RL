@@ -1,0 +1,10 @@
+# Standard comparison: full health, default pipe mix, no gap override
+exp: foam
+episodes: 100
+deterministic: true
+seed: 0
+max_frames: 3000
+variants:
+  - ppo2
+  - ppo_threshold
+  - ppo_exponential

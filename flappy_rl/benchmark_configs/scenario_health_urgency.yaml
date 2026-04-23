@@ -1,0 +1,32 @@
+# Scenario: Health Urgency
+#
+# Tests whether agents become more conservative as starting HP drops.
+# All pipe types present at equal weight, fixed gaps, deterministic seed.
+# Run 3 times with health = 100, 50, 20 and compare:
+#   - mean_min_health (how low does HP go?)
+#   - survival_rate   (do they survive more at full health?)
+#   - mean ep length  (do they play longer at full health?)
+#
+# Expected: health-aware agents (threshold, exponential) show bigger
+# behavior change between health=100 and health=20 than continuous.
+
+exp: foam
+episodes: 100
+deterministic: true
+seed: 42
+max_frames: 5000
+health: 100.0          # change to 50.0 and 20.0 for the three runs
+foam_pct: 0.25         # equal mix of all pipe types
+gap:
+  hard:
+    value: 150         # fixed gap — removes gap randomness as a variable
+  foam:
+    value: 120
+  soft:
+    value: 130
+  brittle:
+    value: 110
+variants:
+  - ppo2
+  - ppo_threshold
+  - ppo_exponential

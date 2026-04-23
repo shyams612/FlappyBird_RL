@@ -76,11 +76,40 @@ class PipeSpawner:
     # ------------------------------------------------------------------
 
     def _make_pipe(self, x: float) -> Pipe:
-        gap_top = self.rng.uniform(self.cfg.gap_y_min, self.cfg.gap_y_max)
-        gap_bottom = gap_top + self.cfg.gap_height
+        pipe_type  = self._sample_pipe_type()
+        gap_height = self._gap_height_for(pipe_type)
+        gap_top    = self.rng.uniform(self.cfg.gap_y_min, self.cfg.gap_y_max)
+        gap_bottom = gap_top + gap_height
         return Pipe(
             x=x,
             gap_top=gap_top,
             gap_bottom=gap_bottom,
-            pipe_type=PipeType.HARD,   # v1: hard only
+            pipe_type=pipe_type,
         )
+
+    def _gap_height_for(self, pipe_type: PipeType) -> float:
+        """Return the gap height for the given pipe type."""
+        if pipe_type == PipeType.SOFT:
+            return self.cfg.gap_height_soft
+        if pipe_type == PipeType.BRITTLE:
+            return self.cfg.gap_height_brittle
+        if pipe_type == PipeType.FOAM:
+            return self.cfg.gap_height_foam
+        return self.cfg.gap_height   # HARD — normal gap
+
+    def _sample_pipe_type(self) -> PipeType:
+        """
+        When enable_pipe_variants is False, always return HARD.
+        When True, sample from the four types using the configured weights.
+        """
+        if not self.cfg.enable_pipe_variants:
+            return PipeType.HARD
+
+        weights = [
+            self.cfg.pipe_weight_hard,
+            self.cfg.pipe_weight_soft,
+            self.cfg.pipe_weight_brittle,
+            self.cfg.pipe_weight_foam,
+        ]
+        types = [PipeType.HARD, PipeType.SOFT, PipeType.BRITTLE, PipeType.FOAM]
+        return self.rng.choices(types, weights=weights, k=1)[0]

@@ -45,9 +45,15 @@ class EnvConfig:
     # ------------------------------------------------------------------ pipes
     pipe_width: float        = 60
     pipe_spacing: float      = 280  # horizontal gap between pipe columns
-    gap_height: float        = 160  # vertical opening size
+    gap_height: float        = 160  # vertical opening for HARD pipes
     gap_y_min: float         = 80   # min y of gap top edge
     gap_y_max: float         = 360  # max y of gap top edge (keeps gap on screen)
+
+    # Per-type gap heights for non-hard pipes (tighter than HARD to force precision)
+    # Only used when enable_pipe_variants=True
+    gap_height_soft:    float = 100.0
+    gap_height_brittle: float =  90.0
+    gap_height_foam:    float = 110.0
 
     # ------------------------------------------------------------------ health
     health_start: float      = 100.0
@@ -60,8 +66,37 @@ class EnvConfig:
     # ------------------------------------------------------------------ flags
     # These are all False in v1; flip them for Config 2+
     enable_bullets: bool      = False
+    bullet_count: int         = 10    # bullets available per episode when enable_bullets=True
     enable_wind: bool         = False
     enable_health_kits: bool  = False
+
+    # --------------------------------------------------------- pipe variants
+    # When False: all pipes are HARD (instant death) — Config 1 behaviour.
+    # When True:  pipe type is sampled per column using the weights below.
+    enable_pipe_variants: bool  = False
+    pipe_weight_hard:    float  = 0.7   # proportional; normalised at spawn time
+    pipe_weight_soft:    float  = 0.1   # SOFT    — 10 hp damage, bird passes through
+    pipe_weight_brittle: float  = 0.1   # BRITTLE — 25 hp damage, bird passes through
+    pipe_weight_foam:    float  = 0.1   # FOAM    —  5 hp damage, bird passes through
+
+    # Frames of damage immunity granted after a non-hard pipe hit (prevents
+    # health draining every frame the bird overlaps the pipe).
+    invincibility_duration: int = 30    # 0.5 s at 60 fps
+
+    # When True: damage scales with penetration depth (graze = small, deep crash = death)
+    # When False: flat damage from PIPE_DAMAGE dict regardless of where bird hits
+    enable_gradient_damage: bool = False
+
+    # --------------------------------------------------------- health reward
+    # null     → SurvivalReward (health ignored in reward)
+    # continuous → HealthAwareReward (penalty scales continuously with health)
+    # threshold  → ThresholdHealthReward (sharp penalty below health_reward_threshold)
+    health_reward_fn: str | None  = None
+    health_reward_scale: float    = 0.5    # damage_scale for all health reward variants
+    health_reward_threshold: float = 25.0  # hp below which threshold mode kicks in
+    health_reward_threshold_scale: float = 3.0  # penalty multiplier below threshold
+    health_reward_steepness: float = 3.0   # k for exponential — higher = steeper curve
+    health_reward_crossover: float = 77.0  # HP where asymmetric signal crosses zero
 
     # --------------------------------------------------------------- computed
     @property

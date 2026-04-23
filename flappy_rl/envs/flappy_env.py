@@ -49,12 +49,13 @@ class FlappyBirdEnv(gymnasium.Env):
         self.render_mode  = render_mode
 
         # Gymnasium spaces — derived entirely from the obs_builder
+        # 4 actions when bullets enabled: bit0=flap, bit1=shoot → {0,1,2,3}
+        # 2 actions otherwise: 0=nothing, 1=flap
         self.observation_space = self.obs_builder.observation_space()
-        self.action_space      = spaces.Discrete(2)   # 0 = nothing, 1 = flap
+        self.action_space      = spaces.Discrete(4 if self.cfg.enable_bullets else 2)
 
         # Internal state (set properly in reset())
         self._state: GameState | None = None
-        self._seed:  int | None       = None
 
         # Renderer — only created on first render() call if render_mode=="human"
         self._renderer = None
@@ -69,11 +70,38 @@ class FlappyBirdEnv(gymnasium.Env):
         options: dict | None = None,
     ) -> tuple[np.ndarray, dict]:
         super().reset(seed=seed)
-        if seed is not None:
-            self._seed = seed
-
+        # Use provided seed once; after that use None so each episode
+        # gets a different random layout (no memorisation of a single track).
+        episode_seed = seed
         self.obs_builder.reset()                        # clear frame stacks etc.
-        self._state = GameState.reset(self.cfg, seed=self._seed)
+
+        # Build an episode-level config override from options dict
+        # Supported keys: health, gap_hard, gap_foam, gap_soft, gap_brittle, max_frames
+        ep_cfg = self.cfg
+        if options:
+            import dataclasses
+            overrides = {}
+            if "gap_hard"    in options: overrides["gap_height"]         = float(options["gap_hard"])
+            if "gap_foam"    in options: overrides["gap_height_foam"]    = float(options["gap_foam"])
+            if "gap_soft"    in options: overrides["gap_height_soft"]    = float(options["gap_soft"])
+            if "gap_brittle" in options: overrides["gap_height_brittle"] = float(options["gap_brittle"])
+            if "max_frames"  in options: overrides["max_episode_frames"] = int(options["max_frames"])
+            if overrides:
+                ep_cfg = dataclasses.replace(ep_cfg, **overrides)
+
+        self._state = GameState.reset(ep_cfg, seed=episode_seed)
+
+        # Health override applied after reset
+        if options and "health" in options:
+            self._state = GameState(
+                bird    = self._state.bird,
+                pipes   = self._state.pipes,
+                spawner = self._state.spawner,
+                cfg     = self._state.cfg,
+                frame   = self._state.frame,
+                score   = self._state.score,
+                health  = float(options["health"]),
+            )
         obs = self.obs_builder.build(self._state)
         return obs, self._info()
 
@@ -112,9 +140,11 @@ class FlappyBirdEnv(gymnasium.Env):
         if self._state is None:
             return {}
         return {
-            "score":  self._state.score,
-            "health": self._state.health,
-            "frame":  self._state.frame,
+            "score":        self._state.score,
+            "health":       self._state.health,
+            "frame":        self._state.frame,
+            "pipes_broken": self._state.pipes_broken,
+            "damage_taken": self._state.damage_taken,
         }
 
     def _ensure_renderer(self) -> None:
