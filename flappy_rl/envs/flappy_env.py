@@ -140,9 +140,11 @@ class FlappyBirdEnv(gymnasium.Env):
         if self._state is None:
             return {}
         return {
-            "score":  self._state.score,
-            "health": self._state.health,
-            "frame":  self._state.frame,
+            "score":        self._state.score,
+            "health":       self._state.health,
+            "frame":        self._state.frame,
+            "pipes_broken": self._state.pipes_broken,
+            "damage_taken": self._state.damage_taken,
         }
 
     def _ensure_renderer(self) -> None:

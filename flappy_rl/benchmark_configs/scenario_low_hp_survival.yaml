@@ -1,0 +1,37 @@
+# Scenario: Low HP Survival
+#
+# Tests whether exponential reward's smooth urgency gradient actually
+# produces better survival at critically low HP vs threshold and continuous.
+# Agent starts at 20 HP (critical zone for threshold at 25HP boundary),
+# tight gaps, high foam density — every hit is dangerous.
+#
+# Expected:
+#   - Exponential: highest survival rate — smooth gradient trained it to
+#     be cautious across all HP levels, not just below 25
+#   - Threshold: good survival — hard mode-switch at 25HP kicks in immediately
+#     since we start at 20HP (already below threshold)
+#   - Continuous: lowest survival — reward blowup at low HP destabilized
+#     training, agent never learned reliable low-HP behavior
+#
+# This is the most discriminating test for the reward function comparison.
+
+exp: foam
+episodes: 100
+deterministic: true
+seed: 42
+max_frames: 3000
+health: 20.0           # start in critical zone
+foam_pct: 0.6          # majority damaging pipes
+gap:
+  hard:
+    value: 140         # tight — must be precise
+  foam:
+    value: 100         # tight foam — crashing is costly at 20HP
+  soft:
+    value: 110
+  brittle:
+    value: 100
+variants:
+  - ppo2
+  - ppo_threshold
+  - ppo_exponential

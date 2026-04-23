@@ -8,16 +8,21 @@ To add a new reward signal:
   3. Pass it into FlappyBirdEnv — nothing else changes.
 
 Available:
-  SurvivalReward        — +1/frame alive, −100 on death  (default, v1)
-  ScoredReward          — SurvivalReward + bonus per pipe passed
-  HealthAwareReward     — continuous damage penalty scaling inversely with health
-  ThresholdHealthReward — flat small penalty above threshold, sharp penalty below it
+  SurvivalReward             — +1/frame alive, −100 on death  (default, v1)
+  ScoredReward               — SurvivalReward + bonus per pipe passed
+  HealthAwareReward          — continuous damage penalty scaling inversely with health
+  ThresholdHealthReward      — flat small penalty above threshold, sharp penalty below it
+  ExponentialHealthReward    — smooth exponential urgency, always a penalty
+  AsymmetricExponentialReward— positive reward for damage at high HP, exponential penalty at low HP
 
 Health reward comparison (FOAM hit, 5hp damage):
   HealthAwareReward (scale=0.5):
     100hp → penalty 2.5   50hp → penalty 5.0   10hp → penalty 25.0
   ThresholdHealthReward (threshold=25hp, scale=0.5, threshold_scale=3.0):
     100hp → penalty 2.5   50hp → penalty 2.5   20hp → penalty 7.5 (3x multiplier kicks in)
+  AsymmetricExponentialReward (C=2, k=3, scale=0.5):
+    100hp → bonus  +0.50  80hp → bonus  +0.05  70hp → penalty -0.23
+     50hp → penalty -1.24  20hp → penalty -4.50
 """
 
 from __future__ import annotations
@@ -272,5 +277,84 @@ class ExponentialHealthReward(RewardFn):
             x          = 1.0 - (prev.health / self.max_health)
             multiplier = math.exp(self.steepness * x)
             reward    -= damage_taken * self.damage_scale * multiplier
+
+        return reward
+
+
+# ---------------------------------------------------------------------------
+# AsymmetricExponentialReward
+# ---------------------------------------------------------------------------
+
+class AsymmetricExponentialReward(RewardFn):
+    """
+    Single continuous curve that rewards damage at high HP and penalizes it
+    increasingly at low HP.
+
+    Signal per damage event:
+        signal = damage * scale * (C - exp(k * (1 - h/max_health)))
+
+    At high HP: exp(...) is small, C dominates  → signal is POSITIVE (bonus)
+    At low  HP: exp(...) grows past C            → signal is NEGATIVE (penalty)
+
+    Zero-crossing (exploit/avoid boundary):
+        h* = max_health * (1 - ln(C) / k)
+        Default (C=2, k=3): h* ≈ 77 HP
+
+    Reward signal per 5hp foam hit (scale=0.5, C=2, k=3):
+      100hp →  +0.50  (exploit — damage is rewarded)
+       80hp →  +0.05  (near neutral)
+       70hp →  -0.23  (avoid — penalty starts)
+       50hp →  -1.24
+       20hp →  -4.50
+        1hp →  -8.75
+
+    Parameters
+    ----------
+    C          : offset constant — controls zero-crossing HP level
+    steepness  : k — controls how fast penalty grows below crossover
+    scale      : overall signal magnitude multiplier
+    crossover  : convenience override for h* — sets C = exp(k*(1-crossover/max_health))
+    """
+
+    def __init__(
+        self,
+        death_penalty: float = -100.0,
+        pipe_bonus:    float =   10.0,
+        scale:         float =    0.5,
+        steepness:     float =    3.0,
+        max_health:    float =  100.0,
+        crossover:     float |  None = None,  # HP at which signal crosses zero
+    ):
+        import math
+        self.death_penalty = death_penalty
+        self.pipe_bonus    = pipe_bonus
+        self.scale         = scale
+        self.steepness     = steepness
+        self.max_health    = max_health
+        # derive C from crossover HP if provided, else default C=2
+        if crossover is not None:
+            self.C = math.exp(steepness * (1.0 - crossover / max_health))
+        else:
+            self.C = 2.0
+
+    def __call__(self, prev: GameState, curr: GameState, action: int) -> float:
+        if curr.terminated:
+            return self.death_penalty
+
+        reward = 1.0
+
+        # Pipe passing bonus
+        if curr.score > prev.score:
+            reward += self.pipe_bonus * (curr.score - prev.score)
+
+        # Asymmetric damage signal — positive at high HP, negative at low HP
+        damage_taken = prev.health - curr.health
+        if damage_taken > 0:
+            import math
+            x      = 1.0 - (prev.health / self.max_health)
+            signal = self.C - math.exp(self.steepness * x)
+            reward += damage_taken * self.scale * signal
+
+        return reward
 
         return reward

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 import pygame
-from stable_baselines3 import PPO, DQN, A2C
+from algorithms import PPO, DQN, A2C
 
 from envs.flappy_env import FlappyBirdEnv
 from envs.config import EnvConfig

@@ -28,7 +28,7 @@ import random
 from pathlib import Path
 
 import yaml
-from stable_baselines3 import PPO, DQN, A2C
+from algorithms import PPO, DQN, A2C
 
 from envs.flappy_env import FlappyBirdEnv
 from envs.config import EnvConfig
@@ -167,7 +167,7 @@ def run_benchmark(
     env   = FlappyBirdEnv(cfg, obs_builder=obs_builder)  # headless
 
     rng = random.Random(seed)
-    rewards, ep_lengths, scores, min_healths = [], [], [], []
+    rewards, ep_lengths, scores, min_healths, pipes_broken_list, damage_taken_list = [], [], [], [], [], []
 
     for _ in range(n_episodes):
         options: dict = {}
@@ -202,6 +202,8 @@ def run_benchmark(
         ep_lengths.append(info["frame"])
         scores.append(info["score"])
         min_healths.append(min_health)
+        pipes_broken_list.append(info.get("pipes_broken", 0))
+        damage_taken_list.append(info.get("damage_taken", 0.0))
 
     env.close()
 
@@ -209,22 +211,25 @@ def run_benchmark(
     mean_len = sum(ep_lengths)  / n_episodes
     mean_sc  = sum(scores)      / n_episodes
     mean_mh  = sum(min_healths) / n_episodes
-    # Survival rate: episodes where agent lasted more than 200 frames
+    mean_pb  = sum(pipes_broken_list) / n_episodes
+    mean_dt  = sum(damage_taken_list) / n_episodes
     survived = sum(1 for l in ep_lengths if l > 200) / n_episodes
 
     return {
-        "variant":      variant,
-        "algo":         algo,
-        "reward_fn":    reward_fn_name,
-        "episodes":     n_episodes,
-        "mean_reward":  mean_r,
-        "std_reward":   _std(rewards),
-        "mean_ep_len":  mean_len,
-        "std_ep_len":   _std(ep_lengths),
-        "mean_score":   mean_sc,
-        "std_score":    _std(scores),
-        "mean_min_health": mean_mh,
-        "survival_rate": survived,
+        "variant":          variant,
+        "algo":             algo,
+        "reward_fn":        reward_fn_name,
+        "episodes":         n_episodes,
+        "mean_reward":      mean_r,
+        "std_reward":       _std(rewards),
+        "mean_ep_len":      mean_len,
+        "std_ep_len":       _std(ep_lengths),
+        "mean_score":       mean_sc,
+        "std_score":        _std(scores),
+        "mean_min_health":  mean_mh,
+        "survival_rate":    survived,
+        "mean_pipes_broken": mean_pb,
+        "mean_damage_taken": mean_dt,
     }
 
 
@@ -338,7 +343,7 @@ def _print_results(results: list[dict]) -> None:
         return
     col = 18
     header = (f"  {'VARIANT':<{col}} {'REWARD':>10} {'±':>6} {'EP LEN':>8} "
-              f"{'±':>6} {'SCORE':>7} {'MIN HP':>7} {'SURVIVE':>8}  REWARD_FN")
+              f"{'±':>6} {'SCORE':>7} {'BROKEN':>7} {'DMG':>7} {'MIN HP':>7} {'SURVIVE':>8}  REWARD_FN")
     sep    = "  " + "─" * (len(header) - 2)
     print(f"\n{header}")
     print(sep)
@@ -350,6 +355,8 @@ def _print_results(results: list[dict]) -> None:
             f"{r['mean_ep_len']:>8.0f} "
             f"{r['std_ep_len']:>6.0f} "
             f"{r['mean_score']:>7.1f} "
+            f"{r.get('mean_pipes_broken', 0):>7.1f} "
+            f"{r.get('mean_damage_taken', 0):>7.1f} "
             f"{r['mean_min_health']:>7.1f} "
             f"{r['survival_rate']:>7.0%}  "
             f"{r['reward_fn']}"

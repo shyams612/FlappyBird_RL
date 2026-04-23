@@ -70,9 +70,11 @@ class GameState:
     pipes: list[Pipe]
     spawner: PipeSpawner
     cfg: EnvConfig
-    frame: int      = 0
-    score: int      = 0     # pipes fully passed
-    health: float   = 100.0
+    frame: int          = 0
+    score: int          = 0     # pipes fully passed
+    health: float       = 100.0
+    pipes_broken: int   = 0     # non-hard pipe contacts that dealt damage this episode
+    damage_taken: float = 0.0   # total damage accumulated this episode
 
     # ------------------------------------------------------------------
     # Factory
@@ -128,6 +130,8 @@ class GameState:
 
         # 2. Passive health drain
         new_health = self.health - cfg.passive_drain
+        new_pipes_broken = self.pipes_broken
+        new_damage_taken = self.damage_taken
         if new_health <= 0:
             new_bird.alive = False
 
@@ -181,6 +185,8 @@ class GameState:
 
                         if new_bird.invincibility_frames == 0:
                             new_health -= damage
+                            new_pipes_broken += 1
+                            new_damage_taken += damage
                             if new_health <= 0:
                                 new_bird.alive = False
                             else:
@@ -202,6 +208,8 @@ class GameState:
             frame=self.frame + 1,
             score=new_score,
             health=max(0.0, new_health),
+            pipes_broken=new_pipes_broken,
+            damage_taken=new_damage_taken,
         )
 
     # ------------------------------------------------------------------

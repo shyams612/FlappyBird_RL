@@ -658,7 +658,7 @@ def cmd_benchmark(exp_name: str, variants: list[str],
     subprocess.run(cmd)
 
 
-def cmd_train(exp_name: str, algo: str, variant: str | None = None):
+def cmd_train(exp_name: str, algo: str, variant: str | None = None, extra_args: list[str] | None = None):
     if algo not in ALGOS:
         print(f"  Unknown algo '{algo}'. Choose from: {ALGOS}")
         return
@@ -669,6 +669,8 @@ def cmd_train(exp_name: str, algo: str, variant: str | None = None):
     cmd = [sys.executable, "train.py", "--exp", exp_name, "--algo", algo]
     if variant:
         cmd += ["--variant", variant]
+    if extra_args:
+        cmd += extra_args
     print(f"  Training: {exp_name} / {variant or algo}  (Press Ctrl+C to stop)\n")
     subprocess.run(cmd)
 
@@ -886,8 +888,9 @@ def run_shell():
             else:
                 print("  Usage: benchmark <exp> <v1> [v2 ...] [--episodes N] [--health H] [--foam F] [--max-frames N]")
         elif cmd == "train" and len(parts) >= 3:
-            variant = parts[3] if len(parts) >= 4 else None
-            cmd_train(parts[1], parts[2], variant)
+            variant = parts[3] if len(parts) >= 4 and not parts[3].startswith("--") else None
+            extra   = parts[4:] if variant else parts[3:]
+            cmd_train(parts[1], parts[2], variant, extra_args=extra)
         elif cmd == "analyze" and len(parts) >= 3:
             cmd_analyze(parts[1], parts[2])
         elif cmd == "approve":

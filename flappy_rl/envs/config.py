@@ -96,6 +96,7 @@ class EnvConfig:
     health_reward_threshold: float = 25.0  # hp below which threshold mode kicks in
     health_reward_threshold_scale: float = 3.0  # penalty multiplier below threshold
     health_reward_steepness: float = 3.0   # k for exponential — higher = steeper curve
+    health_reward_crossover: float = 77.0  # HP where asymmetric signal crosses zero
 
     # --------------------------------------------------------------- computed
     @property

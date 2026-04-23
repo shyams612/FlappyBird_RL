@@ -28,14 +28,14 @@ from pathlib import Path
 from datetime import datetime
 import yaml
 
-from stable_baselines3 import PPO, DQN, A2C
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
+from algorithms import PPO, DQN, A2C
+from algorithms.monitor import Monitor
+from algorithms.callbacks import EvalCallback, CheckpointCallback
 
 from envs.flappy_env import FlappyBirdEnv
 from envs.config import EnvConfig
 from envs.observations import SimpleObsBuilder, Config2ObsBuilder, Config2NoisyObsBuilder
-from envs.rewards import SurvivalReward, HealthAwareReward, ScoredReward, ThresholdHealthReward, ExponentialHealthReward
+from envs.rewards import SurvivalReward, HealthAwareReward, ScoredReward, ThresholdHealthReward, ExponentialHealthReward, AsymmetricExponentialReward
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +128,12 @@ def make_reward_fn(cfg: EnvConfig, reward_override: str | None = None):
             damage_scale=cfg.health_reward_scale,
             steepness=cfg.health_reward_steepness,
         )
+    if reward_override == "asymmetric" or reward_override == "asymmetric_exponential":
+        return AsymmetricExponentialReward(
+            scale=cfg.health_reward_scale,
+            steepness=cfg.health_reward_steepness,
+            crossover=cfg.health_reward_crossover,
+        )
     # Fall back to config default
     if cfg.health_reward_fn == "continuous":
         return HealthAwareReward(damage_scale=cfg.health_reward_scale)
@@ -141,6 +147,12 @@ def make_reward_fn(cfg: EnvConfig, reward_override: str | None = None):
         return ExponentialHealthReward(
             damage_scale=cfg.health_reward_scale,
             steepness=cfg.health_reward_steepness,
+        )
+    if cfg.health_reward_fn == "asymmetric":
+        return AsymmetricExponentialReward(
+            scale=cfg.health_reward_scale,
+            steepness=cfg.health_reward_steepness,
+            crossover=cfg.health_reward_crossover,
         )
     if cfg.enable_pipe_variants:
         return HealthAwareReward(damage_scale=cfg.health_reward_scale)
